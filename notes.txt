@@ -1,0 +1,32 @@
+MAIN
+                          │
+                    initialize state
+                    compute lb
+                          │
+                        DFS ←──────────────────────┐
+                          │                         │
+              ┌───── pruning gates ─────┐           │
+              │  P4 found_optimal?      │           │
+              │  P1 cost >= best?       │           │
+              │  P3 parity impossible?  │           │
+              └─────────────────────────┘           │
+                          │ (passed all gates)      │
+                          │                         │
+                  find (r,c) = first UNDECIDED       │
+                          │                         │
+                   no cell? ──→ BASE CASE            │
+                    update best                      │
+                    check P4                         │
+                          │                         │
+                          │ (cell found)             │
+                          │                         │
+                GET_PLACEMENTS(r,c)                  │
+                          │                         │
+               ┌──────────┴──────────┐              │
+          T placements          Z placements         │
+          + uncover (r,c)                            │
+               │                                    │
+          for each move:                             │
+            apply move                               │
+            DFS ────────────────────────────────────┘
+            undo move
