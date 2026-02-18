@@ -33,7 +33,7 @@ const int T_VAR[4][4][2] = {
     {{0,0},{0,1},{0,2},{1,1}},   // T0
     {{0,0},{1,0},{2,0},{1,1}},   // T1
     {{0,1},{1,0},{1,1},{1,2}},   // T2
-    {{0,0},{0,1},{1,1},{2,1}},   // T3
+    {{1,0},{0,1},{1,1},{2,1}},   // T3
 };
 const int Z_VAR[4][4][2] = {
     {{0,0},{0,1},{1,1},{1,2}},   // Z0
@@ -216,11 +216,6 @@ bool parity_prune(int t_count, int z_count, int undecided_cells)
     // Maximum additional pieces we could place
     int max_more = undecided_cells / 4;
 
-    // After placing up to max_more pieces (all of the minority type),
-    // the minimum achievable |diff| is:
-    //   if diff <= max_more: we can close the gap → min_diff = 0 or 1 depending on parity
-    //   if diff >  max_more: we cannot close the gap at all → prune
-    //
     // Actually the exact condition is:
     //   We need to place at least (diff - 1) more of the minority type
     //   to get |final_diff| <= 1.  That requires max_more >= diff - 1.
@@ -228,34 +223,7 @@ bool parity_prune(int t_count, int z_count, int undecided_cells)
     return (diff > max_more + 1);
 }
 
-// ═════════════════════════════════════════════
-//  Main recursive BB-DFS with full pruning
-//
-//  Pruning rules (applied at the TOP of each call,
-//  before any branching):
-//
-//  P1 — Cost bound:
-//       If cost >= best.cost, this branch is
-//       already at least as expensive as the
-//       best known solution.  Prune.
-//
-//  P2 — Optimistic bound:
-//       Even if we covered every remaining
-//       undecided cell for free, the cost is
-//       still s.cost.  So if cost >= best.cost
-//       is already handled by P1.  But we also
-//       check: if cost + 0 >= best.cost → same.
-//       (P1 covers this; listed separately for
-//       clarity in the assignment context.)
-//
-//  P3 — Parity:
-//       If the T/Z balance cannot be restored
-//       within the remaining undecided cells.
-//
-//  P4 — Trivial lower bound early exit:
-//       If best.cost == trivial_lb, we have an
-//       optimal solution — stop everything.
-// ═════════════════════════════════════════════
+
 void dfs(State& s, Best& best, int trivial_lb,
          int undecided_cells, bool& found_optimal)
 {
@@ -302,10 +270,6 @@ void dfs(State& s, Best& best, int trivial_lb,
     //  descending.  Covering heavier cells first
     //  produces a better (lower) cost early, which
     //  tightens the bound and prunes more branches.
-    //
-    //  The "uncover" branch always comes last: it
-    //  adds cost immediately so it is the least
-    //  promising move.
 
     // Compute coverage weight for each placement
     auto coverage = [&](const Placement& p) {

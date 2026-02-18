@@ -30,3 +30,33 @@ MAIN
             apply move                               │
             DFS ────────────────────────────────────┘
             undo move
+
+DFS PRUNING RULES
+// ═════════════════════════════════════════════
+//  Main recursive BB-DFS with full pruning
+//
+//  Pruning rules (applied at the TOP of each call,
+//  before any branching):
+//
+//  P1 — Cost bound:
+//       If cost >= best.cost, this branch is
+//       already at least as expensive as the
+//       best known solution.  Prune.
+//
+//  P2 — Optimistic bound:
+//       Even if we covered every remaining
+//       undecided cell for free, the cost is
+//       still s.cost.  So if cost >= best.cost
+//       is already handled by P1.  But we also
+//       check: if cost + 0 >= best.cost → same.
+//       (P1 covers this; listed separately for
+//       clarity in the assignment context.)
+//
+//  P3 — Parity:
+//       If the T/Z balance cannot be restored
+//       within the remaining undecided cells.
+//
+//  P4 — Trivial lower bound early exit:
+//       If best.cost == trivial_lb, we have an
+//       optimal solution — stop everything.
+// ═════════════════════════════════════════════
