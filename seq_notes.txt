@@ -60,3 +60,5 @@ DFS PRUNING RULES
 //       If best.cost == trivial_lb, we have an
 //       optimal solution — stop everything.
 // ═════════════════════════════════════════════
+
+Use OpenMP 5.0.

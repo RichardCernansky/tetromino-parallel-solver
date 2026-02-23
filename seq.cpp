@@ -16,19 +16,15 @@
 static const int MAXR = 50;
 static const int MAXC = 50;
 
-// ─────────────────────────────────────────────
 //  Cell states in board[][]
 //    UNDECIDED (0)  — not yet decided
 //    UNCOVERED (-1) — explicitly left bare → adds to cost
 //    N > 0          — covered by piece id N
-// ─────────────────────────────────────────────
 static const int UNDECIDED = 0;
 static const int UNCOVERED = -1;
 
-// ─────────────────────────────────────────────
 //  Piece shape templates
 //  Each variant stores the 4 {dr,dc} offsets of
-
 const int T_VAR[4][4][2] = {
     {{0,0},{0,1},{0,2},{1,1}},   // T0
     {{0,0},{1,0},{2,0},{1,1}},   // T1
@@ -42,17 +38,13 @@ const int Z_VAR[4][4][2] = {
     {{0,0},{1,0},{1,1},{2,1}},   // Z3 (S vert)
 };
 
-// ─────────────────────────────────────────────
 //  A concrete placement: 4 board cells + type
-// ─────────────────────────────────────────────
 struct Placement {
     int  rows[4], cols[4];
     char type;          // 'T' or 'Z'
 };
 
-// ─────────────────────────────────────────────
 //  Full board state threaded through the DFS
-// ─────────────────────────────────────────────
 struct State {
     int  board[MAXR][MAXC];       // cell ownership
     int  weights[MAXR][MAXC];     // fixed input weights
@@ -67,9 +59,7 @@ struct State {
     int  next_id;        // next piece id (1-based)
 };
 
-// ─────────────────────────────────────────────
 //  Best solution snapshot
-// ─────────────────────────────────────────────
 struct Best {
     int  board[MAXR][MAXC];
     char piece_type[MAXR*MAXC];
@@ -78,15 +68,11 @@ struct Best {
     int  next_id;        // how many pieces were placed
 };
 
-// ─────────────────────────────────────────────
 //  Statistics
-// ─────────────────────────────────────────────
 static long long g_calls = 0;   // total recursive calls
 
-// ═════════════════════════════════════════════
 //  Find first UNDECIDED cell in row-major order.
 //  Returns {-1,-1} when the board is fully decided.
-// ═════════════════════════════════════════════
 std::pair<int,int> first_undecided(const State& s)
 {
     for (int r = 0; r < s.rows; r++)
@@ -96,17 +82,12 @@ std::pair<int,int> first_undecided(const State& s)
     return {-1, -1};
 }
 
-// ═════════════════════════════════════════════
+
 //  Generate all valid placements of one piece
 //  type that cover cell (r, c).
-//
 //  Strategy:
 //    For every variant, treat each of its 4
 //    cells as the "anchor" landing on (r,c).
-//    Compute the 4 actual board positions and
-//    accept if all are in-bounds and UNDECIDED.
-//    Deduplicate via a sorted-cell set.
-// ═════════════════════════════════════════════
 std::vector<Placement> get_placements(
     const State& s, int r, int c,
     const int VAR[4][4][2], char type)
@@ -114,6 +95,7 @@ std::vector<Placement> get_placements(
     std::vector<Placement> result;
     std::set<std::array<std::pair<int,int>,4>> seen;
 
+    // go through all of the anchors
     for (int v = 0; v < 4; v++) {
         for (int anchor = 0; anchor < 4; anchor++) {
             int ar = VAR[v][anchor][0];
@@ -126,6 +108,7 @@ std::vector<Placement> get_placements(
             for (int i = 0; i < 4; i++) {
                 int row = r + VAR[v][i][0] - ar;
                 int col = c + VAR[v][i][1] - ac;
+                // check for broken
                 if (row < 0 || row >= s.rows ||
                     col < 0 || col >= s.cols  ||
                     s.board[row][col] != UNDECIDED) {
@@ -137,7 +120,7 @@ std::vector<Placement> get_placements(
             if (!valid) continue;
 
             std::array<std::pair<int,int>,4> key;
-            for (int i = 0; i < 4; i++) key[i] = {p.rows[i], p.cols[i]};
+            for (int i = 0; i < 4; i++) key[i] = {p.rows[i], p.cols[i]}; // placement defined by the rows and cols its on
             std::sort(key.begin(), key.end());
             if (seen.count(key)) continue;
             seen.insert(key);
@@ -189,25 +172,11 @@ void undo_uncover(State& s, int r, int c)
     s.board[r][c]    = UNDECIDED;
 }
 
-// ═════════════════════════════════════════════
-//  Parity pruning helper
-//
-//  At the end, |t_count - z_count| <= 1.
-//  At any point during the search, we know:
-//    - current counts: t_count, z_count
-//    - max extra pieces we could ever place:
-//      floor(undecided_cells / 4)
-//      (conservative: undecided_sum / min_weight
-//       would be tighter but expensive to compute)
-//
-//  We use undecided cell COUNT, not sum, so we
-//  need to track it.  We pass it in as a param
-//  (it's cheaply maintained alongside undecided_sum).
-//
-//  Returns true  → this branch CANNOT satisfy
+
+// Parity prune
+//  Returns true  -> this branch CANNOT satisfy
 //                  the parity constraint → prune.
-//  Returns false → parity is still satisfiable.
-// ═════════════════════════════════════════════
+//  Returns false -> parity is still satisfiable.
 bool parity_prune(int t_count, int z_count, int undecided_cells)
 {
     int diff = t_count - z_count;   // positive: more T placed
@@ -290,7 +259,7 @@ void dfs(State& s, Best& best, int trivial_lb,
             return coverage(a) > coverage(b);  // heaviest first
         });
 
-    // ── Branch: all piece placements (sorted) ────
+    // Branch: all piece placements (sorted)
     for (auto& p : all_moves) {
         if (found_optimal) return;
         apply_piece(s, p);
@@ -298,19 +267,17 @@ void dfs(State& s, Best& best, int trivial_lb,
         undo_piece(s, p);
     }
 
-    // ── Branch: mark (r,c) as uncovered ──────────
-    //
-    //  Pre-check: if uncovering this cell alone
-    //  already reaches best.cost, skip entirely.
+    // Branch: mark (r,c) as uncovered
+    // guard in case one of the piece placement branches above happened to find an optimal solution
     if (found_optimal) return;
-    if (s.cost + s.weights[r][c] < best.cost) {
+    if (s.cost + s.weights[r][c] < best.cost) { //  Pre-check: if uncovering this cell alone produces better state -> only then dfs
         apply_uncover(s, r, c);
         dfs(s, best, trivial_lb, undecided_cells - 1, found_optimal);
         undo_uncover(s, r, c);
     }
 }
 
-// ═════════════════════════════════════════════
+
 //  Compute trivial lower bound:
 //    k = (rows * cols) mod 4
 //    lb = sum of k smallest weights on the board
@@ -333,11 +300,7 @@ int trivial_lower_bound(const State& s)
     return lb;
 }
 
-// ═════════════════════════════════════════════
-//  Print the solution in the required format:
-//    covered cells  → [T|Z]<id>
-//    uncovered cells → their weight
-// ═════════════════════════════════════════════
+//  Print the solution
 void print_solution(const State& s, const Best& best)
 {
     std::cout << "\n=== Solution ===\n";
@@ -368,13 +331,8 @@ void print_solution(const State& s, const Best& best)
     }
 }
 
-// ═════════════════════════════════════════════
-//  Main
-// ═════════════════════════════════════════════
 int main(int argc, char* argv[])
 {
-    // Check if user provided an input filename as a command-line argument
-    // argc = argument count, argv = argument vector (array of strings)
     // argv[0] = program name, argv[1] = first argument (the filename)
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " <input_file>\n";
@@ -382,15 +340,12 @@ int main(int argc, char* argv[])
     }
 
     // Open the input file
-    // argv[1] is the filename the user typed (e.g., "mapa3_11.txt")
     std::ifstream fin(argv[1]);
     if (!fin) {
         // File doesn't exist or can't be opened
         std::cerr << "Cannot open: " << argv[1] << "\n";
         return 1;
     }
-
-    // ── Read board dimensions and weights ────────
 
     // Create an empty State struct and zero-initialize it with {}
     State s{};
@@ -424,8 +379,6 @@ int main(int argc, char* argv[])
         }
     }
 
-    // ── Initialize the "best solution so far" ────
-
     // Start with the absolute WORST possible tiling: everything uncovered
     Best best{};
     best.cost = s.undecided_sum;  // Cost if we placed zero pieces
@@ -438,10 +391,6 @@ int main(int argc, char* argv[])
         for (int j = 0; j < s.cols; j++)
             best.board[i][j] = UNCOVERED;
 
-    // ── Compute the theoretical best possible cost ──
-
-    // lb = lower bound = the cheapest this problem could EVER be
-    // If we ever reach this cost, we can stop immediately (optimal)
     int lb = trivial_lower_bound(s);
 
     // Print some info before starting the search
@@ -452,13 +401,7 @@ int main(int argc, char* argv[])
     // This flag will be set to true if we reach the lower bound (optimal solution)
     // Start timing the search
     auto t0 = std::chrono::high_resolution_clock::now();
-    // THE ACTUAL SEARCH HAPPENS HERE
-    // Pass state by reference (modified in-place)
-    // Pass best by reference (will be updated when better solutions are found)
-    // Pass lb by value (never changes)
-    // Pass total_cells by value (for parity pruning)
-    // Pass found_optimal by reference (set to true if optimal reached)
-    // ── Run the DFS search ───────────────────────
+
     bool found_optimal = false;
     dfs(s, best, lb, total_cells, found_optimal);
 
