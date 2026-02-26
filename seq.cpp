@@ -10,16 +10,12 @@
 #include <iomanip>
 #include <chrono>
 
-// ─────────────────────────────────────────────
 //  Board size limit
-// ─────────────────────────────────────────────
 static const int MAXR = 50;
 static const int MAXC = 50;
 
-//  Cell states in board[][]
-//    UNDECIDED (0)  — not yet decided
-//    UNCOVERED (-1) — explicitly left bare → adds to cost
-//    N > 0          — covered by piece id N
+// States
+// kinds: UNDECIDED, UNCOVERED, N > 0   covered by piece id N
 static const int UNDECIDED = 0;
 static const int UNCOVERED = -1;
 
@@ -38,17 +34,17 @@ const int Z_VAR[4][4][2] = {
     {{0,0},{1,0},{1,1},{2,1}},   // Z3 (S vert)
 };
 
-//  A concrete placement: 4 board cells + type
+//  a placement: 4 board cells + type
 struct Placement {
     int  rows[4], cols[4];
-    char type;          // 'T' or 'Z'
+    char type;   // 'T' or 'Z'
 };
 
 //  Full board state threaded through the DFS
 struct State {
     int  board[MAXR][MAXC];       // cell ownership
     int  weights[MAXR][MAXC];     // fixed input weights
-    char piece_type[MAXR*MAXC];   // piece_type[id-1] → 'T' or 'Z'
+    char piece_type[MAXR*MAXC];   // piece_type[id-1] ->'T' or 'Z'
     int  rows, cols;
 
     int  cost;           // sum of weights of UNCOVERED cells so far
@@ -59,7 +55,7 @@ struct State {
     int  next_id;        // next piece id (1-based)
 };
 
-//  Best solution snapshot
+//  stores best solution sofar
 struct Best {
     int  board[MAXR][MAXC];
     char piece_type[MAXR*MAXC];
@@ -68,7 +64,7 @@ struct Best {
     int  next_id;        // how many pieces were placed
 };
 
-//  Statistics
+//  statistics
 static long long g_calls = 0;   // total recursive calls
 
 //  Find first UNDECIDED cell in row-major order.
@@ -122,6 +118,7 @@ std::vector<Placement> get_placements(
             std::array<std::pair<int,int>,4> key;
             for (int i = 0; i < 4; i++) key[i] = {p.rows[i], p.cols[i]}; // placement defined by the rows and cols its on
             std::sort(key.begin(), key.end());
+            // check if seen
             if (seen.count(key)) continue;
             seen.insert(key);
             result.push_back(p);
@@ -130,11 +127,7 @@ std::vector<Placement> get_placements(
     return result;
 }
 
-// ═════════════════════════════════════════════
-//  Apply / undo helpers
-//  These are exact mirrors of each other — if
-//  you change one, change the other.
-// ═════════════════════════════════════════════
+//  Apply / undo helpers for dfs
 void apply_piece(State& s, const Placement& p)
 {
     int id = s.next_id++;
@@ -185,10 +178,6 @@ bool parity_prune(int t_count, int z_count, int undecided_cells)
     // Maximum additional pieces we could place
     int max_more = undecided_cells / 4;
 
-    // Actually the exact condition is:
-    //   We need to place at least (diff - 1) more of the minority type
-    //   to get |final_diff| <= 1.  That requires max_more >= diff - 1.
-    //   i.e. prune when diff - 1 > max_more  →  diff > max_more + 1
     return (diff > max_more + 1);
 }
 
@@ -198,20 +187,20 @@ void dfs(State& s, Best& best, int trivial_lb,
 {
     ++g_calls;
 
-    // ── P4: already optimal ──────────────────────
+    // P1: already optimal
     if (found_optimal) return;
 
-    // ── P1: cost bound ───────────────────────────
+    // P2: cost bound
     // current cost alone already meets or beats best
     if (s.cost >= best.cost) return;
 
-    // ── P3: parity ───────────────────────────────
+    // P3: parity
     if (parity_prune(s.t_count, s.z_count, undecided_cells)) return;
 
-    // ── Find first undecided cell ────────────────
+    // Find first undecided cell
     auto [r, c] = first_undecided(s);
 
-    // ── Base case: board fully decided ───────────
+    // Base case: board fully decided
     if (r == -1) {
         // cost < best.cost is guaranteed by P1 above
         best.cost    = s.cost;
@@ -228,18 +217,16 @@ void dfs(State& s, Best& best, int trivial_lb,
         return;
     }
 
-    // ── Collect all piece placements covering (r,c) ─
+    //Collect all piece placements covering (r,c)
     auto t_moves = get_placements(s, r, c, T_VAR, 'T');
     auto z_moves = get_placements(s, r, c, Z_VAR, 'Z');
 
-    // ── Move ordering (Note 1) ───────────────────
-    //
+
     //  We merge all piece placements into one list
     //  and sort by the SUM OF COVERED WEIGHTS,
     //  descending.  Covering heavier cells first
     //  produces a better (lower) cost early, which
     //  tightens the bound and prunes more branches.
-
     // Compute coverage weight for each placement
     auto coverage = [&](const Placement& p) {
         int sum = 0;
@@ -282,7 +269,6 @@ void dfs(State& s, Best& best, int trivial_lb,
 //    k = (rows * cols) mod 4
 //    lb = sum of k smallest weights on the board
 //  If k == 0, lb = 0.
-// ═════════════════════════════════════════════
 int trivial_lower_bound(const State& s)
 {
     int k = (s.rows * s.cols) % 4;
@@ -350,8 +336,6 @@ int main(int argc, char* argv[])
     // Create an empty State struct and zero-initialize it with {}
     State s{};
 
-    // Read first line: "rows cols"
-    // Example: "3 11" means 3 rows, 11 columns
     fin >> s.rows >> s.cols;
 
     // Initialize the counters for this state
@@ -386,7 +370,7 @@ int main(int argc, char* argv[])
     best.z_count = 0;             // Zero Z pieces
     best.next_id = 1;             // No pieces at all
 
-    // Mark every cell as uncovered in the initial "worst solution"
+    // Mark every cell as uncovered in the initial worst solution
     for (int i = 0; i < s.rows; i++)
         for (int j = 0; j < s.cols; j++)
             best.board[i][j] = UNCOVERED;
@@ -411,8 +395,6 @@ int main(int argc, char* argv[])
     // Compute elapsed time in seconds
     double elapsed = std::chrono::duration<double>(t1 - t0).count();
 
-    // ── Print results ────────────────────────────
-
     // g_calls is a global counter incremented at the start of every DFS call
     std::cout << "Recursive calls:    " << g_calls << "\n";
 
@@ -420,15 +402,12 @@ int main(int argc, char* argv[])
     std::cout << "Wall time:          " << std::fixed
               << std::setprecision(3) << elapsed << " s\n";
 
-    // Did we prove optimality?
     if (found_optimal)
         std::cout << "Result: OPTIMAL (reached trivial lower bound)\n";
     else
         std::cout << "Result: best found (lower bound not reached)\n";
 
-    // Print the actual tiling (the board with T1, Z2, weights, etc.)
-    // best now contains the best solution found during the search
     print_solution(s, best);
 
-    return 0;  // Success
+    return 0;
 }

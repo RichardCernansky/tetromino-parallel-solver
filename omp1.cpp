@@ -11,23 +11,25 @@
 #include <atomic>
 #include <omp.h>
 
+
+// States
+// kinds: UNDECIDED, UNCOVERED, N > 0   covered by piece id N
 static const int MAXR = 50;
 static const int MAXC = 50;
 static const int UNDECIDED = 0;
 static const int UNCOVERED = -1;
 
 const int T_VAR[4][4][2] = {
-    {{0,0},{0,1},{0,2},{1,1}},
-    {{0,0},{1,0},{2,0},{1,1}},
-    {{0,1},{1,0},{1,1},{1,2}},
-    {{0,0},{0,1},{1,1},{2,1}},
+    {{0,0},{0,1},{0,2},{1,1}},   // T0
+    {{0,0},{1,0},{2,0},{1,1}},   // T1
+    {{0,1},{1,0},{1,1},{1,2}},   // T2
+    {{1,0},{0,1},{1,1},{2,1}},   // T3
 };
-
 const int Z_VAR[4][4][2] = {
-    {{0,0},{0,1},{1,1},{1,2}},
-    {{0,1},{1,0},{1,1},{2,0}},
-    {{0,1},{0,2},{1,0},{1,1}},
-    {{0,0},{1,0},{1,1},{2,1}},
+    {{0,0},{0,1},{1,1},{1,2}},   // Z0
+    {{0,1},{1,0},{1,1},{2,0}},   // Z1
+    {{0,1},{0,2},{1,0},{1,1}},   // Z2 (S horiz)
+    {{0,0},{1,0},{1,1},{2,1}},   // Z3 (S vert)
 };
 
 struct Placement {
@@ -35,21 +37,30 @@ struct Placement {
     char type;
 };
 
+
+
+//  Full board state threaded through the DFS
 struct State {
-    int  board[MAXR][MAXC];
-    int  weights[MAXR][MAXC];
-    char piece_type[MAXR*MAXC];
+    int  board[MAXR][MAXC];       // cell ownership
+    int  weights[MAXR][MAXC];     // fixed input weights
+    char piece_type[MAXR*MAXC];   // piece_type[id-1] ->'T' or 'Z'
     int  rows, cols;
-    int  cost;
-    int  undecided_sum;
-    int  undecided_cells;
-    int  t_count, z_count, next_id;
+
+    int  cost;           // sum of weights of UNCOVERED cells so far
+    int  undecided_sum;  // sum of weights of UNDECIDED cells
+    int undecided_cells;
+    int  t_count;        // T pieces placed so far
+    int  z_count;        // Z pieces placed so far
+    int  next_id;        // next piece id (1-based)
 };
 
+//  stores best solution sofar
 struct Best {
     int  board[MAXR][MAXC];
     char piece_type[MAXR*MAXC];
-    int  cost, t_count, z_count, next_id;
+    int  cost;
+    int  t_count, z_count;
+    int  next_id;        // how many pieces were placed
 };
 
 struct SharedBest {
@@ -62,13 +73,20 @@ struct SharedBest {
 
 static std::atomic<long long> g_calls{0};
 
-std::pair<int,int> first_undecided(const State& s) {
+//  Find first UNDECIDED cell in row-major order.
+//  Returns {-1,-1} when the board is fully decided.
+std::pair<int,int> first_undecided(const State& s)
+{
     for (int r = 0; r < s.rows; r++)
         for (int c = 0; c < s.cols; c++)
-            if (s.board[r][c] == UNDECIDED) return {r, c};
+            if (s.board[r][c] == UNDECIDED)
+                return {r, c};
     return {-1, -1};
 }
 
+//  Generate all valid placements of one piece
+//  type that cover cell (r, c).
+//  For every variant, treat each of its 4 cells as the anchor landing on (r,c).
 std::vector<Placement> get_placements(const State& s, int r, int c, const int VAR[4][4][2], char type) {
     std::vector<Placement> result;
     std::set<std::array<std::pair<int,int>,4>> seen;
@@ -95,15 +113,19 @@ std::vector<Placement> get_placements(const State& s, int r, int c, const int VA
 }
 
 void apply_piece(State& s, const Placement& p) {
+    // handle ids
     int id = s.next_id++; s.piece_type[id-1] = p.type;
+    // go through placement cells and update board
     for (int i = 0; i < 4; i++) {
         s.undecided_sum -= s.weights[p.rows[i]][p.cols[i]];
         s.board[p.rows[i]][p.cols[i]] = id;
     }
+    // update undecided
     s.undecided_cells -= 4;
     if (p.type == 'T') s.t_count++; else s.z_count++;
 }
 
+// reverse of apply piece
 void undo_piece(State& s, const Placement& p) {
     s.next_id--;
     for (int i = 0; i < 4; i++) {
@@ -115,27 +137,50 @@ void undo_piece(State& s, const Placement& p) {
 }
 
 void apply_uncover(State& s, int r, int c) {
+    // add to weights and subtract from undecided_sum
     s.cost += s.weights[r][c]; s.undecided_sum -= s.weights[r][c];
+    // apply uncovered in board
     s.board[r][c] = UNCOVERED; s.undecided_cells--;
 }
 
+//reverse of apply uncover
 void undo_uncover(State& s, int r, int c) {
     s.cost -= s.weights[r][c]; s.undecided_sum += s.weights[r][c];
     s.board[r][c] = UNDECIDED; s.undecided_cells++;
 }
 
-bool parity_prune(int t, int z, int u) {
-    int d = (t - z < 0) ? z - t : t - z;
-    return d > u / 4 + 1;
+// Parity prune
+//  Returns true  -> this branch CANNOT satisfy
+//                  the parity constraint → prune.
+//  Returns false -> parity is still satisfiable.
+bool parity_prune(int t_count, int z_count, int undecided_cells)
+{
+    int diff = t_count - z_count;   // positive: more T placed
+    if (diff < 0) diff = -diff;     // |diff|
+
+    // Maximum additional pieces we could place
+    int max_more = undecided_cells / 4;
+
+    return (diff > max_more + 1);
 }
 
-int trivial_lower_bound(const State& s) {
+
+//  Compute trivial lower bound:
+//    k = (rows * cols) mod 4
+//    lb = sum of k smallest weights on the board
+//  If k == 0, lb = 0.
+int trivial_lower_bound(const State& s)
+{
     int k = (s.rows * s.cols) % 4;
     if (k == 0) return 0;
+
     std::vector<int> w;
+    w.reserve(s.rows * s.cols);
     for (int i = 0; i < s.rows; i++)
-        for (int j = 0; j < s.cols; j++) w.push_back(s.weights[i][j]);
+        for (int j = 0; j < s.cols; j++)
+            w.push_back(s.weights[i][j]);
     std::sort(w.begin(), w.end());
+
     int lb = 0;
     for (int i = 0; i < k; i++) lb += w[i];
     return lb;
@@ -155,57 +200,111 @@ void print_solution(const State& s, const Best& best) {
     }
 }
 
-void generate_tasks(State s, int depth, int cutoff, int lb, std::vector<State>& pool) {
-    if (depth >= cutoff) { pool.push_back(s); return; }
+// DFS generated pool of states that gets filled at the start with n=depth levels of the tree
+void generate_states(State s, int depth, int cutoff, int lb, std::vector<State>& pool) {
+    // stop condition, when reached cutoff
+    if (depth >= cutoff) {
+        pool.push_back(s);
+        return;
+    }
     auto [r, c] = first_undecided(s);
     if (r == -1) return;
+
+    // get placements for T and Z
     auto t_moves = get_placements(s, r, c, T_VAR, 'T');
     auto z_moves = get_placements(s, r, c, Z_VAR, 'Z');
-    for (auto& p : t_moves) { apply_piece(s, p); generate_tasks(s, depth+1, cutoff, lb, pool); undo_piece(s, p); }
-    for (auto& p : z_moves) { apply_piece(s, p); generate_tasks(s, depth+1, cutoff, lb, pool); undo_piece(s, p); }
+
+    // t cover branch
+    for (auto& p : t_moves) {
+        apply_piece(s, p);
+        generate_states(s, depth+1, cutoff, lb, pool);
+        undo_piece(s, p);
+    }
+
+    // z cover branch
+    for (auto& p : z_moves) {
+        apply_piece(s, p);
+        generate_states(s, depth+1, cutoff, lb, pool);
+        undo_piece(s, p);
+    }
+    //uncover branch
+    apply_uncover(s, r, c);
+    generate_states(s, depth+1, cutoff, lb, pool);
+    undo_uncover(s, r, c);
 }
 
 void dfs_parallel(State& s, SharedBest& shared, int lb) {
+
+    // relaxed atomics because the operation is associative and commutative
     g_calls.fetch_add(1, std::memory_order_relaxed);
+
+    // acquired updated last from main memory
     if (shared.found_optimal.load(std::memory_order_acquire)) return;
+
+    // acquired updated last from main memory
     int best = shared.cost.load(std::memory_order_acquire);
+    // check if worse than best -> prune
     if (s.cost >= best) return;
+    // check if unable to balance -> prune
     if (parity_prune(s.t_count, s.z_count, s.undecided_cells)) return;
 
+    // get first undecided cell
     auto [r, c] = first_undecided(s);
-    if (r == -1) {
-        int my = s.cost, old = shared.cost.load(std::memory_order_acquire);
-        if (my < old) {
+    if (r == -1) { // if board fully decided
+        int owned = s.cost, old = shared.cost.load(std::memory_order_acquire);
+        // first check if its even worth locking: if own < old -> update
+        if (owned < old) {
+            // microseconds pass
+            // OBTAIN LOCK
             omp_set_lock(&shared.lock);
-            if (my < shared.cost.load(std::memory_order_relaxed)) {
-                shared.cost.store(my, std::memory_order_release);
-                shared.solution.cost = s.cost; shared.solution.t_count = s.t_count; shared.solution.z_count = s.z_count; shared.solution.next_id = s.next_id;
+            // time passes before setting lock, need to check again if owned < old
+            // memory order relaxed because already locker - no need for synchronization
+            if (owned < shared.cost.load(std::memory_order_relaxed)) {
+                //update shared.cost with release atomic
+                shared.cost.store(owned, std::memory_order_release);
+                // update shared.solution with copies - already locked
+                shared.solution.cost = s.cost;
+                shared.solution.t_count = s.t_count;
+                shared.solution.z_count = s.z_count;
+                shared.solution.next_id = s.next_id;
                 for (int i = 0; i < s.rows; i++) for (int j = 0; j < s.cols; j++) shared.solution.board[i][j] = s.board[i][j];
                 for (int k = 0; k < s.next_id - 1; k++) shared.solution.piece_type[k] = s.piece_type[k];
-                if (my == lb) shared.found_optimal.store(true, std::memory_order_release);
+                if (owned == lb) shared.found_optimal.store(true, std::memory_order_release);
             }
+            // RELEASE LOCK
             omp_unset_lock(&shared.lock);
         }
         return;
     }
 
+    // get placements
     auto t_moves = get_placements(s, r, c, T_VAR, 'T');
     auto z_moves = get_placements(s, r, c, Z_VAR, 'Z');
-    auto cov = [&](const Placement& p) { int sum = 0; for (int i = 0; i < 4; i++) sum += s.weights[p.rows[i]][p.cols[i]]; return sum; };
+    // function to compute sum of additional weight covered coming form the placements
+    auto cov = [&](const Placement& p) {
+        int sum = 0; for (int i = 0; i < 4; i++) sum += s.weights[p.rows[i]][p.cols[i]]; return sum;
+    };
     std::vector<Placement> all;
+
     for (auto& p : t_moves) all.push_back(p);
     for (auto& p : z_moves) all.push_back(p);
+    // sort descending -> the higher the coverage, the better
     std::sort(all.begin(), all.end(), [&](const Placement& a, const Placement& b) { return cov(a) > cov(b); });
-
     for (auto& p : all) {
+        // check latest found optimal for pruning
         if (shared.found_optimal.load(std::memory_order_acquire)) return;
-        apply_piece(s, p); dfs_parallel(s, shared, lb); undo_piece(s, p);
+        apply_piece(s, p);
+        dfs_parallel(s, shared, lb);
+        undo_piece(s, p);
     }
 
+    //
     if (shared.found_optimal.load(std::memory_order_acquire)) return;
     int best2 = shared.cost.load(std::memory_order_acquire);
     if (s.cost + s.weights[r][c] < best2) {
-        apply_uncover(s, r, c); dfs_parallel(s, shared, lb); undo_uncover(s, r, c);
+        apply_uncover(s, r, c);
+        dfs_parallel(s, shared, lb);
+        undo_uncover(s, r, c);
     }
 }
 
@@ -246,19 +345,25 @@ int main(int argc, char* argv[]) {
 
     auto t0 = std::chrono::high_resolution_clock::now();
 
+    // create pool
     std::vector<State> pool;
-    generate_tasks(s, 0, cut, lb, pool);
+    // generate pool of states from depth 0 until the cutoff
+    generate_states(s, 0, cut, lb, pool);
     std::cout << "Generated tasks:    " << pool.size() << "\n";
     std::cout << "Starting parallel search...\n";
 
+    // parallel processing
     #pragma omp parallel
     {
+        // process with single managing thread
         #pragma omp single
         {
             for (size_t i = 0; i < pool.size(); i++) {
+                // create task object for each i and make each i private for its task
                 #pragma omp task firstprivate(i)
                 {
-                    State ts = pool[i]; // each task makes copy of the state from the pool - avoid conflict
+
+                    State ts = pool[i]; // each task makes copy of the state from the pool - avoid conflict (guarded by task-unique i)
                     dfs_parallel(ts, shared, lb);
                 }
             }
