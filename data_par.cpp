@@ -323,6 +323,7 @@ void dfs_parallel(State& s, SharedBest& shared, int lb) {
         if (opt) return;
     }
     int old_2;
+    // get always correct atomic value, most recent one from global memory
     # pragma omp atomic read
     old_2 = shared.cost;
     if (s.cost + s.weights[r][c] < old_2) {

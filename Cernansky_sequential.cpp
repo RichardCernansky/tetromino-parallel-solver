@@ -1,11 +1,10 @@
+// C++ 17
 #include <iostream>
 #include <fstream>
 #include <vector>
 #include <array>
 #include <set>
-#include <map>
 #include <string>
-#include <climits>
 #include <algorithm>
 #include <iomanip>
 #include <chrono>
@@ -20,7 +19,7 @@ static const int UNDECIDED = 0;
 static const int UNCOVERED = -1;
 
 //  Piece shape templates
-//  Each variant stores the 4 {dr,dc} offsets of
+//  Each variant stores the 4 (dr,dc) difference offsets of
 const int T_VAR[4][4][2] = {
     {{0,0},{0,1},{0,2},{1,1}},   // T0
     {{0,0},{1,0},{2,0},{1,1}},   // T1
@@ -127,7 +126,7 @@ std::vector<Placement> get_placements(
     return result;
 }
 
-//  Apply / undo helpers for dfs
+//  Apply, undo helpers for dfs
 void apply_piece(State& s, const Placement& p)
 {
     int id = s.next_id++;
@@ -164,7 +163,6 @@ void undo_uncover(State& s, int r, int c)
     s.undecided_sum += s.weights[r][c];
     s.board[r][c]    = UNDECIDED;
 }
-
 
 // Parity prune
 //  Returns true  -> this branch CANNOT satisfy
@@ -241,12 +239,13 @@ void dfs(State& s, Best& best, int trivial_lb,
     for (auto& p : t_moves) all_moves.push_back(p);
     for (auto& p : z_moves) all_moves.push_back(p);
 
+    // sort by heaviest placement first
     std::sort(all_moves.begin(), all_moves.end(),
         [&](const Placement& a, const Placement& b) {
-            return coverage(a) > coverage(b);  // heaviest first
+            return coverage(a) > coverage(b);
         });
 
-    // Branch: all piece placements (sorted)
+    // Branch all piece placements (sorted)
     for (auto& p : all_moves) {
         if (found_optimal) return;
         apply_piece(s, p);
@@ -254,7 +253,7 @@ void dfs(State& s, Best& best, int trivial_lb,
         undo_piece(s, p);
     }
 
-    // Branch: mark (r,c) as uncovered
+    // Branch mark (r,c) as uncovered
     // guard in case one of the piece placement branches above happened to find an optimal solution
     if (found_optimal) return;
     if (s.cost + s.weights[r][c] < best.cost) { //  Pre-check: if uncovering this cell alone produces better state -> only then dfs
@@ -395,10 +394,7 @@ int main(int argc, char* argv[])
     // Compute elapsed time in seconds
     double elapsed = std::chrono::duration<double>(t1 - t0).count();
 
-    // g_calls is a global counter incremented at the start of every DFS call
     std::cout << "Recursive calls:    " << g_calls << "\n";
-
-    // Print time with 3 decimal places
     std::cout << "Wall time:          " << std::fixed
               << std::setprecision(3) << elapsed << " s\n";
 
