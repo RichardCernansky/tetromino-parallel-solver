@@ -231,7 +231,7 @@ void generate_states(State s, int depth, int cutoff, int lb, std::vector<State>&
     undo_uncover(s, r, c);
 }
 
-void dfs_parallel(State& s, SharedBest& shared, int lb) {
+void dfs(State& s, SharedBest& shared, int lb) {
 
     // relaxed atomics because the operation is associative and commutative
     #pragma omp atomic
@@ -265,7 +265,7 @@ void dfs_parallel(State& s, SharedBest& shared, int lb) {
         // first check if its even worth locking: if own < old -> update
         if (owned < old) {
             // microseconds pass
-            // OBTAIN LOCK
+            // acquire lock
             omp_set_lock(&shared.lock);
             int old_2;
             old_2 = shared.cost;
@@ -281,7 +281,7 @@ void dfs_parallel(State& s, SharedBest& shared, int lb) {
                 for (int k = 0; k < s.next_id - 1; k++) shared.solution.piece_type[k] = s.piece_type[k];
                 if (owned == lb) shared.found_optimal = true;
             }
-            // RELEASE LOCK
+            // release lock
             omp_unset_lock(&shared.lock);
         }
         return;
@@ -310,7 +310,7 @@ void dfs_parallel(State& s, SharedBest& shared, int lb) {
             if (opt) return;
         }
         apply_piece(s, p);
-        dfs_parallel(s, shared, lb);
+        dfs(s, shared, lb);
         undo_piece(s, p);
     }
 
@@ -318,17 +318,19 @@ void dfs_parallel(State& s, SharedBest& shared, int lb) {
     // acquired updated last from main memory
     {
         bool opt;
+        // get the most recent value from the shared memory
         # pragma omp atomic read
         opt = shared.found_optimal;
         if (opt) return;
     }
     int old_2;
-    // get always correct atomic value, most recent one from global memory
+    // get always correct atomic value, most recent one from shared-global  memory
     # pragma omp atomic read
     old_2 = shared.cost;
+    // check if after uncovering the sum is lower then best one
     if (s.cost + s.weights[r][c] < old_2) {
         apply_uncover(s, r, c);
-        dfs_parallel(s, shared, lb);
+        dfs(s, shared, lb);
         undo_uncover(s, r, c);
     }
 }
@@ -368,40 +370,33 @@ int main(int argc, char* argv[]) {
     std::cout << "Threads:            " << nt << "\n";
     std::cout << "Cutoff depth:       " << cut << "\n";
 
-    auto t0 = std::chrono::high_resolution_clock::now();
-
-    // create pool
+    // ── Phase 1: generate task pool sequentially ──────────────
+    auto tg0 = std::chrono::high_resolution_clock::now();
     std::vector<State> pool;
-    // generate pool of states from depth 0 until the cutoff
     generate_states(s, 0, cut, lb, pool);
-    std::cout << "Generated tasks:    " << pool.size() << "\n";
-    std::cout << "Starting parallel search...\n";
+    auto tg1 = std::chrono::high_resolution_clock::now();
+    double gen_time = std::chrono::duration<double>(tg1-tg0).count();
+    std::cout << "Generated tasks:     " << pool.size()
+              << "  (" << std::fixed << std::setprecision(3) << gen_time << " s)\n";
 
-    // parallel processing
-    #pragma omp parallel
-    {
-        // process with single managing thread
-        #pragma omp single
-        {
-            for (size_t i = 0; i < pool.size(); i++) {
-                // create task object for each i and make each i private for its task
-                #pragma omp task firstprivate(i)
-                {
+    // ── Phase 2: parallel for over the pool ───────────────────
+    auto tp0 = std::chrono::high_resolution_clock::now();
 
-                    State ts = pool[i]; // each task makes copy of the state from the pool - avoid conflict (guarded by task-unique i)
-                    dfs_parallel(ts, shared, lb);
-                }
-            }
-            #pragma omp taskwait
-        }
+    #pragma omp parallel for schedule(dynamic, 1)
+    for (int i = 0; i < (int) pool.size(); i++) {
+        if (shared.found_optimal) continue;   // can't break in parallel for
+        State ts = pool[i];                   // private copy per iteration
+        dfs(ts, shared, lb);
     }
 
-    auto t1 = std::chrono::high_resolution_clock::now();
-    double elapsed = std::chrono::duration<double>(t1 - t0).count();
+    auto tp1 = std::chrono::high_resolution_clock::now();
+    double par_time = std::chrono::duration<double>(tp1-tp0).count();
+
     omp_destroy_lock(&shared.lock);
 
-    std::cout << "Recursive calls:    " << g_calls << "\n";
-    std::cout << "Wall time:          " << std::fixed << std::setprecision(3) << elapsed << " s\n";
+    std::cout << "Recursive calls:     " << g_calls << "\n";
+    std::cout << "Parallel wall time:  " << std::fixed << std::setprecision(3) << par_time << " s\n";
+    std::cout << "Total wall time:     " << std::fixed << std::setprecision(3) << gen_time+par_time << " s\n";
     std::cout << (shared.found_optimal ? "Result: OPTIMAL\n" : "Result: best found\n");
     print_solution(s, shared.solution);
     return 0;

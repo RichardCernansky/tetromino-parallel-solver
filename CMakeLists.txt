@@ -18,3 +18,8 @@ target_link_libraries(omp1 PRIVATE OpenMP::OpenMP_CXX)
 
 # Set compiler flags for OpenMP
 target_compile_options(omp1 PRIVATE -fopenmp)
+
+
+
+target_link_libraries(data_par PRIVATE OpenMP::OpenMP_CXX)
+target_compile_options(data_par PRIVATE -fopenmp)

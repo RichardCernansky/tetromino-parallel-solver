@@ -10,7 +10,7 @@
 #include <chrono>
 #include <atomic>
 #include <omp.h>
-
+// TODO handle bool atomicity
 
 // States
 // kinds: UNDECIDED, UNCOVERED, N > 0   covered by piece id N
@@ -231,7 +231,11 @@ void generate_states(State s, int depth, int cutoff, int lb, std::vector<State>&
     undo_uncover(s, r, c);
 }
 
-void dfs_parallel(State& s, SharedBest& shared, int lb) {
+void dfs_seq(State s, SharedBest& shared, int lb) {
+
+}
+
+void dfs_task(State s, SharedBest& shared, int lb, int depth, int cutoff) {
 
     // relaxed atomics because the operation is associative and commutative
     #pragma omp atomic
@@ -265,7 +269,7 @@ void dfs_parallel(State& s, SharedBest& shared, int lb) {
         // first check if its even worth locking: if own < old -> update
         if (owned < old) {
             // microseconds pass
-            // OBTAIN LOCK
+            // acquire lock
             omp_set_lock(&shared.lock);
             int old_2;
             old_2 = shared.cost;
@@ -281,9 +285,16 @@ void dfs_parallel(State& s, SharedBest& shared, int lb) {
                 for (int k = 0; k < s.next_id - 1; k++) shared.solution.piece_type[k] = s.piece_type[k];
                 if (owned == lb) shared.found_optimal = true;
             }
-            // RELEASE LOCK
+            // release lock
             omp_unset_lock(&shared.lock);
         }
+        return;
+    }
+
+    // onto generation
+
+    if (depth >= cutoff) {
+        dfs_seq(s, shared, lb);
         return;
     }
 
@@ -300,36 +311,32 @@ void dfs_parallel(State& s, SharedBest& shared, int lb) {
     for (auto& p : z_moves) all.push_back(p);
     // sort descending -> the higher the coverage, the better
     std::sort(all.begin(), all.end(), [&](const Placement& a, const Placement& b) { return cov(a) > cov(b); });
-    for (auto& p : all) {
-        // check latest found optimal for pruning
-        // acquired updated last from main memory
-        {
-            bool opt;
-            # pragma omp atomic read
-            opt = shared.found_optimal;
-            if (opt) return;
-        }
-        apply_piece(s, p);
-        dfs_parallel(s, shared, lb);
-        undo_piece(s, p);
-    }
 
     //
     // acquired updated last from main memory
-    {
-        bool opt;
-        # pragma omp atomic read
-        opt = shared.found_optimal;
-        if (opt) return;
+    for (auto& p : all) {
+        if (shared.found_optimal) break;
+        // Apply the piece to a local copy for this task.
+        State child = s;
+        apply_piece(child, p);
+        #pragma omp task firstprivate(child)
+        {
+            dfs_task(child, shared, lb, depth+1, cutoff);
+        }
     }
-    int old_2;
-    # pragma omp atomic read
-    old_2 = shared.cost;
-    if (s.cost + s.weights[r][c] < old_2) {
-        apply_uncover(s, r, c);
-        dfs_parallel(s, shared, lb);
-        undo_uncover(s, r, c);
+    // Uncover branch – also a task
+    if (!shared.found_optimal && s.cost + s.weights[r][c] < shared.cost) {
+        State child = s;
+        apply_uncover(child, r, c);
+        #pragma omp task firstprivate(child)
+        {
+            dfs_task(child, shared, lb, depth+1, cutoff);
+        }
     }
+
+    // Wait for all child tasks spawned at this level before returning.
+    // This keeps the task tree bounded and avoids runaway task explosion.
+    #pragma omp taskwait
 }
 
 int main(int argc, char* argv[]) {
@@ -369,31 +376,17 @@ int main(int argc, char* argv[]) {
 
     auto t0 = std::chrono::high_resolution_clock::now();
 
-    // create pool
-    std::vector<State> pool;
-    // generate pool of states from depth 0 until the cutoff
-    generate_states(s, 0, cut, lb, pool);
-    std::cout << "Generated tasks:    " << pool.size() << "\n";
-    std::cout << "Starting parallel search...\n";
 
     // parallel processing
-    #pragma omp parallel
-    {
-        // process with single managing thread
-        #pragma omp single
+    #pragma omp parallel shared(shared, s, lb, cut)
         {
-            for (size_t i = 0; i < pool.size(); i++) {
-                // create task object for each i and make each i private for its task
-                #pragma omp task firstprivate(i)
-                {
-
-                    State ts = pool[i]; // each task makes copy of the state from the pool - avoid conflict (guarded by task-unique i)
-                    dfs_parallel(ts, shared, lb);
-                }
+        #pragma omp single
+            {
+                dfs_task(s, shared, lb, 0, cut);
             }
-            #pragma omp taskwait
+            // implicit barrier here – all tasks complete before we exit
         }
-    }
+
 
     auto t1 = std::chrono::high_resolution_clock::now();
     double elapsed = std::chrono::duration<double>(t1 - t0).count();
