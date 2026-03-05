@@ -14,8 +14,8 @@
 
 // States
 // kinds: UNDECIDED, UNCOVERED, N > 0   covered by piece id N
-static const int MAXR = 50;
-static const int MAXC = 50;
+static const int MAXR = 20;
+static const int MAXC = 20;
 static const int UNDECIDED = 0;
 static const int UNCOVERED = -1;
 

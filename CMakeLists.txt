@@ -10,14 +10,14 @@ find_package(OpenMP REQUIRED)
 add_executable(seq Cernansky_sequential.cpp)
 
 # Parallel version (needs OpenMP)
-add_executable(omp1 omp1.cpp)
+add_executable(task_par task_par.cpp)
 add_executable(data_par data_par.cpp)
 
 # Link OpenMP to the parallel executable
-target_link_libraries(omp1 PRIVATE OpenMP::OpenMP_CXX)
+target_link_libraries(task_par PRIVATE OpenMP::OpenMP_CXX)
 
 # Set compiler flags for OpenMP
-target_compile_options(omp1 PRIVATE -fopenmp)
+target_compile_options(task_par PRIVATE -fopenmp)
 
 
 
