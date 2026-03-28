@@ -11,7 +11,6 @@
 #include <atomic>
 #include <omp.h>
 
-
 // States
 // kinds: UNDECIDED, UNCOVERED, N > 0   covered by piece id N
 static const int MAXR = 20;
@@ -198,64 +197,115 @@ void print_solution(const State& s, const Best& best) {
     }
 }
 
-// DFS generated pool of states that gets filled at the start with n=depth levels of the tree
-void generate_states(State s, int depth, int cutoff, int lb, std::vector<State>& pool) {
-    // stop condition, when reached cutoff
-    if (depth >= cutoff) {
-        pool.push_back(s);
-        return;
-    }
-    auto [r, c] = first_undecided(s);
-    if (r == -1) return;
-
-    // get placements for T and Z
-    auto t_moves = get_placements(s, r, c, T_VAR, 'T');
-    auto z_moves = get_placements(s, r, c, Z_VAR, 'Z');
-
-    // t cover branch
-    for (auto& p : t_moves) {
-        apply_piece(s, p);
-        generate_states(s, depth+1, cutoff, lb, pool);
-        undo_piece(s, p);
-    }
-
-    // z cover branch
-    for (auto& p : z_moves) {
-        apply_piece(s, p);
-        generate_states(s, depth+1, cutoff, lb, pool);
-        undo_piece(s, p);
-    }
-    //uncover branch
-    apply_uncover(s, r, c);
-    generate_states(s, depth+1, cutoff, lb, pool);
-    undo_uncover(s, r, c);
-}
-
-void dfs(State& s, SharedBest& shared, int lb) {
-
-    // relaxed atomics because the operation is associative and commutative
+// sequential version of dfs_task with atomic reads on shared and locking for shared writes
+void dfs_seq(State& s, SharedBest& shared, int lb) {
     #pragma omp atomic
     g_calls++;
 
-    // acquired updated last from main memory
     {
         bool opt;
-        # pragma omp atomic read
+        #pragma omp atomic read
         opt = shared.found_optimal;
         if (opt) return;
     }
 
-    // acquired updated last from main memory
-    int best;
-    # pragma omp atomic read
-    best = shared.cost;
-    // check if worse than best -> prune
-    if (s.cost >= best) return;
-    // check if unable to balance -> prune
+    {
+        int best;
+        #pragma omp atomic read
+        best = shared.cost;
+        if (s.cost >= best) return;
+    }
+
     if (parity_prune(s.t_count, s.z_count, s.undecided_cells)) return;
 
-    // get first undecided cell
-    auto [r, c] = first_undecided(s);
+    auto [r,c] = first_undecided(s);
+    if (r == -1) {
+        int owned = s.cost;
+
+        int old;
+        #pragma omp atomic read
+        old = shared.cost;
+
+        if (owned < old) {                      // cheap check before locking
+            omp_set_lock(&shared.lock);
+            int old_2 = shared.cost;            // re-check inside lock
+            if (owned < old_2) {
+                shared.cost = owned;
+                shared.solution.cost      = s.cost;
+                shared.solution.t_count   = s.t_count;
+                shared.solution.z_count   = s.z_count;
+                shared.solution.next_id   = s.next_id;
+                for (int i = 0; i < s.rows; i++)
+                    for (int j = 0; j < s.cols; j++)
+                        shared.solution.board[i][j] = s.board[i][j];
+                for (int k = 0; k < s.next_id - 1; k++)
+                    shared.solution.piece_type[k] = s.piece_type[k];
+                if (owned == lb)
+                    shared.found_optimal = true;
+            }
+            omp_unset_lock(&shared.lock);
+        }
+        return;
+    }
+
+
+    auto t_moves = get_placements(s,r,c,T_VAR,'T');
+    auto z_moves = get_placements(s,r,c,Z_VAR,'Z');
+    auto cov = [&](const Placement& p){ int s2=0; for(int i=0;i<4;i++) s2+=s.weights[p.rows[i]][p.cols[i]]; return s2; };
+
+    std::vector<Placement> all;
+    for (auto& p : t_moves) all.push_back(p);
+    for (auto& p : z_moves) all.push_back(p);
+    std::sort(all.begin(),all.end(),[&](const Placement& a,const Placement& b){return cov(a)>cov(b);});
+
+    for (auto& p : all) {
+        bool opt;
+        #pragma omp atomic read
+        opt = shared.found_optimal;
+        if (opt) return;
+        apply_piece(s,p);
+        dfs_seq(s,shared,lb);
+        undo_piece(s,p);
+    }
+    bool opt;
+    #pragma omp atomic read
+    opt = shared.found_optimal;
+    if (opt) return;
+
+    // now spawn new task
+    int old_2;
+    // get always correct atomic value, most recent one from shared-global  memory
+    # pragma omp atomic read
+    old_2 = shared.cost;
+    // Uncover branch - add task
+    if (s.cost + s.weights[r][c] < old_2) {
+        apply_uncover(s,r,c);
+        dfs_seq(s,shared,lb);
+        undo_uncover(s,r,c);
+    }
+}
+
+
+void dfs_task(State s, SharedBest& shared, int lb, int depth, int cutoff) {
+
+    #pragma omp atomic
+    g_calls++;
+
+    bool opt;
+    #pragma omp atomic read
+    opt = shared.found_optimal;
+    if (opt) return;
+
+    int best;
+    #pragma omp atomic read
+    best = shared.cost;
+    if (s.cost >= best) return;
+
+    if (parity_prune(s.t_count, s.z_count, s.undecided_cells)) return;
+
+    auto rc = first_undecided(s);
+    int r = rc.first;
+    int c = rc.second;
     if (r == -1) { // if board fully decided
         int owned = s.cost;
 
@@ -287,53 +337,93 @@ void dfs(State& s, SharedBest& shared, int lb) {
         return;
     }
 
-    // get placements
+    // start doing seq after this level
+    if (depth >= cutoff) {
+        dfs_seq(s, shared, lb);
+        return;
+    }
+
     auto t_moves = get_placements(s, r, c, T_VAR, 'T');
     auto z_moves = get_placements(s, r, c, Z_VAR, 'Z');
-    // function to compute sum of additional weight covered coming form the placements
-    auto cov = [&](const Placement& p) {
-        int sum = 0; for (int i = 0; i < 4; i++) sum += s.weights[p.rows[i]][p.cols[i]]; return sum;
-    };
-    std::vector<Placement> all;
 
+    auto cov = [&](const Placement& p) {
+        int sum = 0;
+        for (int i = 0; i < 4; i++) sum += s.weights[p.rows[i]][p.cols[i]];
+        return sum;
+    };
+
+    // get all placements and sort them decreasingly by the coverage they provide -> optimal faster
+    std::vector<Placement> all;
     for (auto& p : t_moves) all.push_back(p);
     for (auto& p : z_moves) all.push_back(p);
-    // sort descending -> the higher the coverage, the better
-    std::sort(all.begin(), all.end(), [&](const Placement& a, const Placement& b) { return cov(a) > cov(b); });
-    for (auto& p : all) {
-        // check latest found optimal for pruning
-        // acquired updated last from main memory
-        {
-            bool opt;
-            # pragma omp atomic read
-            opt = shared.found_optimal;
-            if (opt) return;
+    std::sort(all.begin(), all.end(), [&](const Placement& a, const Placement& b) {
+        return cov(a) > cov(b);
+    });
+
+
+    bool has_local = false;
+    State local_child;
+
+    int cur_best;
+    #pragma omp atomic read
+    cur_best = shared.cost;
+    bool can_uncover = (s.cost + s.weights[r][c] < cur_best);
+
+    for (int idx = 0; idx < (int)all.size(); idx++) {
+    // recursively spawn new task in each iteration for all the possible placements
+        bool stop;
+        #pragma omp atomic read
+        stop = shared.found_optimal;
+        if (stop) break;
+
+        // create new copy unique for the thread
+        State child = s;
+        apply_piece(child, all[idx]);
+
+        if (!has_local) {
+            local_child = child;
+            has_local = true;
+        } else {
+
+            // idle thread from the team picks this up
+            #pragma omp task firstprivate(child) shared(shared)
+            {
+                dfs_task(child, shared, lb, depth + 1, cutoff);
+            }
         }
-        apply_piece(s, p);
-        dfs(s, shared, lb);
-        undo_piece(s, p);
     }
 
-    //
-    // acquired updated last from main memory
-    {
-        bool opt;
-        // get the most recent value from the shared memory
-        # pragma omp atomic read
-        opt = shared.found_optimal;
-        if (opt) return;
+
+    // recursively spawn task for the uncovered shared
+    if (can_uncover) {
+        bool stop;
+        #pragma omp atomic read
+        stop = shared.found_optimal;
+
+        if (!stop) {
+            // need copy before applying uncover so it's not destroyed
+            State child = s;
+            apply_uncover(child, r, c);
+
+            if (!has_local) {
+                local_child = child;
+                has_local = true;
+            } else {
+                // idle thread from the team picks this up, firstprivate - private copy of the state so they don't race, explicitly sharing shared
+                #pragma omp task firstprivate(child) shared(shared)
+                {
+                    dfs_task(child, shared, lb, depth + 1, cutoff);
+                }
+            }
+        }
     }
-    int old_2;
-    // get always correct atomic value, most recent one from shared-global  memory
-    # pragma omp atomic read
-    old_2 = shared.cost;
-    // check if after uncovering the sum is lower then best one
-    if (s.cost + s.weights[r][c] < old_2) {
-        apply_uncover(s, r, c);
-        dfs(s, shared, lb);
-        undo_uncover(s, r, c);
+
+    // if there is local
+    if (has_local) {
+        dfs_task(local_child, shared, lb, depth + 1, cutoff);
     }
 }
+
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
@@ -341,8 +431,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    int nt = (argc >= 3) ? std::stoi(argv[2]) : omp_get_max_threads();
-    int cut = (argc >= 4) ? std::stoi(argv[3]) : 3;
+    // int nt = (argc >= 3) ? std::stoi(argv[2]) : omp_get_max_threads();
+    int nt = std::stoi(argv[2]);
+    int cut =  std::stoi(argv[3]);
     omp_set_num_threads(nt);
 
     std::ifstream fin(argv[1]);
@@ -363,40 +454,43 @@ int main(int argc, char* argv[]) {
     shared.cost = s.undecided_sum;
     shared.found_optimal = false;
     omp_init_lock(&shared.lock);
+
     shared.solution.cost = s.undecided_sum;
+    shared.solution.t_count = 0;
+    shared.solution.z_count = 0;
+    shared.solution.next_id = 1;
+
+    for (int i = 0; i < s.rows; i++) {
+        for (int j = 0; j < s.cols; j++) {
+            shared.solution.board[i][j] = UNCOVERED;
+        }
+    }
 
     std::cout << "Board:              " << s.rows << " x " << s.cols << "\n";
     std::cout << "Trivial lower bound: " << lb << "\n";
     std::cout << "Threads:            " << nt << "\n";
     std::cout << "Cutoff depth:       " << cut << "\n";
 
-    // ── Phase 1: generate task pool sequentially ──────────────
-    auto tg0 = std::chrono::high_resolution_clock::now();
-    std::vector<State> pool;
-    generate_states(s, 0, cut, lb, pool);
-    auto tg1 = std::chrono::high_resolution_clock::now();
-    double gen_time = std::chrono::duration<double>(tg1-tg0).count();
-    std::cout << "Generated tasks:     " << pool.size()
-              << "  (" << std::fixed << std::setprecision(3) << gen_time << " s)\n";
+    auto t0 = std::chrono::high_resolution_clock::now();
 
-    // ── Phase 2: parallel for over the pool ───────────────────
-    auto tp0 = std::chrono::high_resolution_clock::now();
 
-    #pragma omp parallel for schedule(dynamic, 1)
-    for (int i = 0; i < (int) pool.size(); i++) {
-        if (shared.found_optimal) continue;   // can't break in parallel for
-        State ts = pool[i];                   // private copy per iteration
-        dfs(ts, shared, lb);
-    }
+    // parallel processing - create team of threads, explicitly sharing variable shared SharedBest struct
+    #pragma omp parallel shared(shared)
+        {
+        #pragma omp single
+            {
+                dfs_task(s, shared, lb, 0, cut);
+            }
+            // implicit barrier here – all tasks spawned in the dfs_task must complete before we exit
+        }
 
-    auto tp1 = std::chrono::high_resolution_clock::now();
-    double par_time = std::chrono::duration<double>(tp1-tp0).count();
 
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double elapsed = std::chrono::duration<double>(t1 - t0).count();
     omp_destroy_lock(&shared.lock);
 
-    std::cout << "Recursive calls:     " << g_calls << "\n";
-    std::cout << "Parallel wall time:  " << std::fixed << std::setprecision(3) << par_time << " s\n";
-    std::cout << "Total wall time:     " << std::fixed << std::setprecision(3) << gen_time+par_time << " s\n";
+    std::cout << "Recursive calls:    " << g_calls << "\n";
+    std::cout << "Wall time:          " << std::fixed << std::setprecision(3) << elapsed << " s\n";
     std::cout << (shared.found_optimal ? "Result: OPTIMAL\n" : "Result: best found\n");
     print_solution(s, shared.solution);
     return 0;
