@@ -1,0 +1,20 @@
+[cf-prod-node-041:mpi_rank_0][mv2_get_arch_type] **********************WARNING***********************
+[cf-prod-node-041:mpi_rank_0][mv2_get_arch_type] Failed to automatically detect the CPU architecture.
+[cf-prod-node-041:mpi_rank_0][mv2_get_arch_type] This may lead to subpar communication performance.
+[cf-prod-node-041:mpi_rank_0][mv2_get_arch_type] ****************************************************
+[cf-prod-node-041:mpi_rank_0][mv2_get_arch_type] **********************WARNING***********************
+[cf-prod-node-041:mpi_rank_0][mv2_get_arch_type] Failed to automatically detect the CPU architecture.
+[cf-prod-node-041:mpi_rank_0][mv2_get_arch_type] This may lead to subpar communication performance.
+[cf-prod-node-041:mpi_rank_0][mv2_get_arch_type] ****************************************************
+[cf-prod-node-041:mpi_rank_0][mv2_get_arch_type] **********************WARNING***********************
+[cf-prod-node-041:mpi_rank_0][mv2_get_arch_type] Failed to automatically detect the CPU architecture.
+[cf-prod-node-041:mpi_rank_0][mv2_get_arch_type] This may lead to subpar communication performance.
+[cf-prod-node-041:mpi_rank_0][mv2_get_arch_type] ****************************************************
+[cf-prod-node-041:mpi_rank_1][error_sighandler] Caught error: Segmentation fault (signal 11)
+[cf-prod-node-041:mpi_rank_2][error_sighandler] Caught error: Segmentation fault (signal 11)
+srun: error: cf-prod-node-041: tasks 1-2: Segmentation fault (core dumped)
+slurmstepd: error:  mpi/pmix_v2: _errhandler: cf-prod-node-041 [0]: pmixp_client_v2.c:211: Error handler invoked: status = -25, source = [slurm.pmix.138966.0:1]
+slurmstepd: error: *** STEP 138966.0 ON cf-prod-node-041 CANCELLED AT 2026-03-29T00:09:43 ***
+srun: Job step aborted: Waiting up to 32 seconds for job step to finish.
+srun: error: cf-prod-node-041: task 0: Killed
+srun: error: cf-prod-node-042: task 3: Killed
