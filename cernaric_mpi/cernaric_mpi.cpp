@@ -1,34 +1,4 @@
-// ============================================================================
-// SQM Quatromino Tiling Solver — MPI + OpenMP Hybrid (Master-Slave)
-// ============================================================================
-//
-// Architecture overview:
-//   Rank 0 (Master):
-//     1. Reads input and generates a pool of partial DFS states (sequential)
-//     2. Dynamically distributes batches of states to worker ranks
-//     3. Receives results, updates global best, sends more work or termination
-//
-//   Ranks 1..P-1 (Workers):
-//     1. Read the same input file (avoids broadcasting large weight matrix)
-//     2. Receive batches of states from master
-//     3. Process them using OpenMP parallel-for with schedule(dynamic,1)
-//     4. Report local best solution back to master
-//
-//   Within each worker, OpenMP threads share a process-local SharedBest
-//   protected by an OMP lock — identical to the pure-OpenMP version.
-//
-//   The master piggybacks the current global best cost with every work
-//   assignment so workers can initialise tighter pruning bounds.
-//
-// Target: cluster-arm.in.fit.cvut.cz (ARM64, Cray PE, MVAPICH2)
-//
-// Compilation:
-//   module load cray-mvapich2_pmix_nogpu
-//   CC -O2 -fopenmp -std=c++17 -o sqm_mpi sqm_mpi.cpp
-//
-// Execution (via Slurm):
-//   sbatch -p arm_long -N 2 -c 12 mpi_job.sh
-// ============================================================================
+//Richard Cernansky, cernaric@fit.cvut.cz
 
 #include <iostream>
 #include <fstream>
@@ -45,10 +15,7 @@
 #include <mpi.h>
 #include <omp.h>
 
-// ============================================================================
 // Constants and piece definitions
-// ============================================================================
-
 static const int MAXR = 20;
 static const int MAXC = 20;
 static const int UNDECIDED = 0;
@@ -70,17 +37,11 @@ const int Z_VAR[4][4][2] = {
     {{0,0},{1,0},{1,1},{2,1}},
 };
 
-// ============================================================================
-// MPI protocol constants
-// ============================================================================
-
+// MPI message constants - flags
 static const int TAG_WORK   = 10;
 static const int TAG_RESULT = 20;
 
-// ============================================================================
 // Data structures
-// ============================================================================
-
 struct Placement {
     int  rows[4], cols[4];
     char type;
@@ -136,10 +97,7 @@ struct WorkerResult {
     bool found_optimal;
 };
 
-// ============================================================================
 // Packing / unpacking for MPI transport
-// ============================================================================
-
 MPIState pack_state(const State& s) {
     MPIState ms;
     std::memcpy(ms.board, s.board, sizeof(ms.board));
@@ -169,10 +127,7 @@ State unpack_state(const MPIState& ms, const State& base) {
     return s;
 }
 
-// ============================================================================
 // Core solver functions
-// ============================================================================
-
 static long long g_calls = 0;
 
 std::pair<int,int> first_undecided(const State& s) {
@@ -183,8 +138,7 @@ std::pair<int,int> first_undecided(const State& s) {
     return {-1, -1};
 }
 
-std::vector<Placement> get_placements(const State& s, int r, int c,
-                                       const int VAR[4][4][2], char type) {
+std::vector<Placement> get_placements(const State& s, int r, int c, const int VAR[4][4][2], char type) {
     std::vector<Placement> result;
     std::set<std::array<std::pair<int,int>,4>> seen;
     for (int v = 0; v < 4; v++) {
@@ -267,12 +221,8 @@ int trivial_lower_bound(const State& s) {
     return lb;
 }
 
-// ============================================================================
-// State pool generation (sequential DFS to cutoff depth)
-// ============================================================================
-
-void generate_states(State s, int depth, int cutoff, int lb,
-                     std::vector<State>& pool) {
+// state pool generation - sequential DFS to cutoff depth
+void generate_states(State s, int depth, int cutoff, int lb, std::vector<State>& pool) {
     if (depth >= cutoff) {
         pool.push_back(s);
         return;
@@ -299,28 +249,26 @@ void generate_states(State s, int depth, int cutoff, int lb,
     undo_uncover(s, r, c);
 }
 
-// ============================================================================
-// DFS with branch-and-bound (OpenMP threads on each worker)
-// ============================================================================
-
+// DFS - OpenMP from DATA parallelized solution
 void dfs(State& s, SharedBest& shared, int lb) {
-    #pragma omp atomic
+    #pragma omp atomic // everyone reads
     g_calls++;
 
     {
         bool opt;
-        #pragma omp atomic read
+        #pragma omp atomic read //everyone reads
         opt = shared.found_optimal;
         if (opt) return;
     }
 
     int best;
-    #pragma omp atomic read
+    #pragma omp atomic read // everyone reads
     best = shared.cost;
     if (s.cost >= best) return;
 
     if (parity_prune(s.t_count, s.z_count, s.undecided_cells)) return;
 
+    // get the undecided cell to generate possible next states
     auto [r, c] = first_undecided(s);
 
     if (r == -1) {
@@ -328,9 +276,10 @@ void dfs(State& s, SharedBest& shared, int lb) {
         int old;
         #pragma omp atomic read
         old = shared.cost;
-        if (owned < old) {
+        if (owned < old) { //check if is smaller 
             omp_set_lock(&shared.lock);
-            if (owned < shared.cost) {
+            if (owned < shared.cost) { // still smaller?
+                // write to shared, no need for atomic - lock acquired
                 shared.cost = owned;
                 shared.solution.cost = s.cost;
                 shared.solution.t_count = s.t_count;
@@ -351,12 +300,12 @@ void dfs(State& s, SharedBest& shared, int lb) {
     auto t_moves = get_placements(s, r, c, T_VAR, 'T');
     auto z_moves = get_placements(s, r, c, Z_VAR, 'Z');
 
+    // calculate coverage for sort descending - largest go first, better chance
     auto cov = [&](const Placement& p) {
         int sum = 0;
         for (int i = 0; i < 4; i++) sum += s.weights[p.rows[i]][p.cols[i]];
         return sum;
     };
-
     std::vector<Placement> all;
     all.reserve(t_moves.size() + z_moves.size());
     for (auto& p : t_moves) all.push_back(p);
@@ -366,6 +315,7 @@ void dfs(State& s, SharedBest& shared, int lb) {
                   return cov(a) > cov(b);
               });
 
+    // dfs on all next possible states
     for (auto& p : all) {
         {
             bool opt;
@@ -378,12 +328,15 @@ void dfs(State& s, SharedBest& shared, int lb) {
         undo_piece(s, p);
     }
 
+    // if optimal found return
     {
         bool opt;
         #pragma omp atomic read
         opt = shared.found_optimal;
         if (opt) return;
     }
+
+    // dfs on possible uncover- never covered 
     int old_best;
     #pragma omp atomic read
     old_best = shared.cost;
@@ -394,9 +347,6 @@ void dfs(State& s, SharedBest& shared, int lb) {
     }
 }
 
-// ============================================================================
-// Pretty-print the solution
-// ============================================================================
 
 void print_solution(const State& s, const Best& best) {
     std::cout << "\n=== Solution ===\n";
@@ -419,12 +369,11 @@ void print_solution(const State& s, const Best& best) {
 // Main — MPI Master-Slave orchestration
 int main(int argc, char* argv[]) {
     // MPI_Init is sufficient here because all MPI calls happen on the main
-    // thread, outside of any #pragma omp parallel region. Workers do:
-    //   MPI_Recv (main thread) -> omp parallel for -> MPI_Send (main thread)
-    // So MPI never sees multiple threads calling it concurrently.
+    // MPI never sees multiple threads calling it concurrently.
     MPI_Init(&argc, &argv);
 
     int rank, nprocs;
+    // initialize rank, nproc information
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
@@ -436,19 +385,24 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // number of threads 
     int nt    = (argc >= 3) ? std::stoi(argv[2]) : omp_get_max_threads();
+    // cut-off depth
     int cut   = (argc >= 4) ? std::stoi(argv[3]) : 4;
-    int batch = (argc >= 5) ? std::stoi(argv[4]) : std::max(1, nt * 2);
+    // batch size for single pass
+    int batch_size = (argc >= 5) ? std::stoi(argv[4]) : std::max(1, nt * 2);
     omp_set_num_threads(nt);
 
     // All ranks read the input file (shared filesystem)
     std::ifstream fin(argv[1]);
+    // check if can open
     if (!fin) {
         if (rank == 0) std::cerr << "Cannot open: " << argv[1] << "\n";
         MPI_Finalize();
         return 1;
     }
 
+    // initialize base
     State base{};
     fin >> base.rows >> base.cols;
     base.cost = 0; base.undecided_sum = 0;
@@ -464,48 +418,6 @@ int main(int argc, char* argv[]) {
 
     int lb = trivial_lower_bound(base);
 
-    // SINGLE-PROCESS FALLBACK (pure OpenMP)
-    if (nprocs == 1) {
-        SharedBest shared;
-        shared.cost = base.undecided_sum;
-        shared.found_optimal = false;
-        omp_init_lock(&shared.lock);
-        shared.solution.cost = base.undecided_sum;
-
-        std::cout << "Board:              " << base.rows << " x " << base.cols << "\n";
-        std::cout << "Trivial lower bound: " << lb << "\n";
-        std::cout << "Mode:               Pure OpenMP (" << nt << " threads)\n";
-        std::cout << "Cutoff depth:       " << cut << "\n";
-
-        auto t0 = std::chrono::high_resolution_clock::now();
-        std::vector<State> pool;
-        generate_states(base, 0, cut, lb, pool);
-        auto t1 = std::chrono::high_resolution_clock::now();
-        double gen_t = std::chrono::duration<double>(t1 - t0).count();
-        std::cout << "Generated tasks:     " << pool.size()
-                  << "  (" << std::fixed << std::setprecision(3) << gen_t << " s)\n";
-
-        auto t2 = std::chrono::high_resolution_clock::now();
-        #pragma omp parallel for schedule(dynamic, 1)
-        for (int i = 0; i < (int)pool.size(); i++) {
-            if (shared.found_optimal) continue;
-            State ts = pool[i];
-            dfs(ts, shared, lb);
-        }
-        auto t3 = std::chrono::high_resolution_clock::now();
-        double par_t = std::chrono::duration<double>(t3 - t2).count();
-        omp_destroy_lock(&shared.lock);
-
-        std::cout << "Recursive calls:     " << g_calls << "\n";
-        std::cout << "Parallel wall time:  " << std::fixed << std::setprecision(3) << par_t << " s\n";
-        std::cout << "Total wall time:     " << std::fixed << std::setprecision(3) << gen_t + par_t << " s\n";
-        std::cout << (shared.found_optimal ? "Result: OPTIMAL\n" : "Result: best found\n");
-        print_solution(base, shared.solution);
-        MPI_Finalize();
-        return 0;
-    }
-
-    // ====================================================================
     // MASTER (rank 0)
     if (rank == 0) {
         std::cout << "Board:               " << base.rows << " x " << base.cols << "\n";
@@ -513,7 +425,7 @@ int main(int argc, char* argv[]) {
         std::cout << "MPI processes:       " << nprocs << "\n";
         std::cout << "OpenMP threads/proc: " << nt << "\n";
         std::cout << "Cutoff depth:        " << cut << "\n";
-        std::cout << "Batch size:          " << batch << "\n";
+        std::cout << "Batch size:          " << batch_size << "\n";
 
         auto tg0 = std::chrono::high_resolution_clock::now();
         std::vector<State> pool;
@@ -530,23 +442,26 @@ int main(int argc, char* argv[]) {
 
         auto tp0 = std::chrono::high_resolution_clock::now();
 
+        // initialize global solution
         int global_best = base.undecided_sum;
         WorkerResult global_solution{};
         global_solution.best_cost = global_best;
         bool global_optimal = false;
 
-        int num_workers = nprocs - 1;
-        int next_idx = 0;
-        int active_workers = 0;
+        int num_workers = nprocs - 1; // num of workers is all nprocs without master
+        int next_idx = 0;  // next state index
+        int active_workers = 0; // how many workers have work
 
         // Send initial batch to each worker
         for (int w = 1; w <= num_workers; w++) {
-            int count = std::min(batch, (int)packed.size() - next_idx);
-            if (count <= 0 || global_optimal) count = 0;
+            int count = std::min(batch_size, (int) packed.size() - next_idx); // calculate how many packets left
+            if (count <= 0 || global_optimal) count = 0; // if count is zero or found optimal, dont send work anymore
 
+            // create header and send to worker w 
             int header[2] = {count, global_best};
             MPI_Send(header, 2, MPI_INT, w, TAG_WORK, MPI_COMM_WORLD);
 
+            // if has packets then send them and increase the next_idx and active workers
             if (count > 0) {
                 MPI_Send(&packed[next_idx], count * (int)sizeof(MPIState),
                          MPI_BYTE, w, TAG_WORK, MPI_COMM_WORLD);
@@ -564,6 +479,7 @@ int main(int argc, char* argv[]) {
             int src = status.MPI_SOURCE;
             active_workers--;
 
+            // update global best
             if (wr.best_cost < global_best) {
                 global_best = wr.best_cost;
                 global_solution = wr;
@@ -572,11 +488,12 @@ int main(int argc, char* argv[]) {
 
             int count = 0;
             if (!global_optimal && next_idx < (int)packed.size())
-                count = std::min(batch, (int)packed.size() - next_idx);
+                count = std::min(batch_size, (int)packed.size() - next_idx);
 
             int header[2] = {count, global_best};
             MPI_Send(header, 2, MPI_INT, src, TAG_WORK, MPI_COMM_WORLD);
 
+            // if count is still > 0, send another batch, increase next_idx, active workers
             if (count > 0) {
                 MPI_Send(&packed[next_idx], count * (int)sizeof(MPIState),
                          MPI_BYTE, src, TAG_WORK, MPI_COMM_WORLD);
@@ -585,13 +502,16 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        // stop clock
         auto tp1 = std::chrono::high_resolution_clock::now();
         double par_time = std::chrono::duration<double>(tp1 - tp0).count();
 
+        // mpi reduce for global g_calls
         long long total_calls = 0;
-        MPI_Reduce(&g_calls, &total_calls, 1, MPI_LONG_LONG, MPI_SUM,
-                   0, MPI_COMM_WORLD);
-
+        // each processes private g_calls, reduced to tota_calls, one element (not array), type long, operation, root process index, group
+        MPI_Reduce(&g_calls, &total_calls, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD); 
+        
+        // time prints 
         std::cout << "Recursive calls:     " << total_calls << "\n";
         std::cout << "Generate time:       " << std::fixed << std::setprecision(3)
                   << gen_time << " s\n";
@@ -600,7 +520,8 @@ int main(int argc, char* argv[]) {
         std::cout << "Total wall time:     " << std::fixed << std::setprecision(3)
                   << gen_time + par_time << " s\n";
         std::cout << (global_optimal ? "Result: OPTIMAL\n" : "Result: best found\n");
-
+        
+        // set the best solution from the global one and print it
         Best best_sol;
         best_sol.cost = global_solution.best_cost;
         best_sol.t_count = global_solution.t_count;
@@ -612,42 +533,49 @@ int main(int argc, char* argv[]) {
         print_solution(base, best_sol);
     }
 
-    // ====================================================================
     // WORKER (rank != 0)
     else {
+        // for every non-master process, receive messages in infinite while
         while (true) {
+            // receive message in the header
             int header[2];
             MPI_Recv(header, 2, MPI_INT, 0, TAG_WORK,
                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             int count     = header[0];
             int best_hint = header[1];
 
+            // stop condition when the 
             if (count == 0) break;
 
+            // receive the message from master 
             std::vector<MPIState> recv_buf(count);
             MPI_Recv(recv_buf.data(), count * (int)sizeof(MPIState),
                      MPI_BYTE, 0, TAG_WORK, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
+            // fill the local_pool
             std::vector<State> local_pool(count);
             for (int i = 0; i < count; i++)
                 local_pool[i] = unpack_state(recv_buf[i], base);
             recv_buf.clear();
 
+            // initialize the shared best 
             SharedBest shared;
             shared.cost = best_hint;
             shared.found_optimal = false;
             omp_init_lock(&shared.lock);
             shared.solution.cost = best_hint;
 
+            // initialize the thread parallelism with OpenMP of the worker for its local pool
             #pragma omp parallel for schedule(dynamic, 1)
             for (int i = 0; i < count; i++) {
                 if (shared.found_optimal) continue;
+                // dfs for each thread on its own copy of pooled State
                 State ts = local_pool[i];
                 dfs(ts, shared, lb);
             }
-
             omp_destroy_lock(&shared.lock);
 
+            // fill in the WorkerResult struct and 
             WorkerResult wr;
             wr.best_cost = shared.cost;
             std::memcpy(wr.board, shared.solution.board, sizeof(wr.board));
@@ -658,15 +586,16 @@ int main(int argc, char* argv[]) {
             wr.next_id       = shared.solution.next_id;
             wr.found_optimal = shared.found_optimal;
 
+            // send the message of the worker to the Master
             MPI_Send(&wr, sizeof(WorkerResult), MPI_BYTE,
                      0, TAG_RESULT, MPI_COMM_WORLD);
         }
 
-        long long dummy = 0;
-        MPI_Reduce(&g_calls, &dummy, 1, MPI_LONG_LONG, MPI_SUM,
-                   0, MPI_COMM_WORLD);
+        long long dummy = 0; // not used in non-root process
+        MPI_Reduce(&g_calls, &dummy, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
     }
 
+    // finalize the program
     MPI_Finalize();
     return 0;
 }

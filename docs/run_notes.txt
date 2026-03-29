@@ -11,7 +11,7 @@ sbatch -p arm_fast -N 1 -c 12 mpi_job.sh
 
 # -N; -c specified means that Slurm allocates that many resources, on which the .sh script is run
 # MPI run on 2 nodes (4 processes/node × 12 threads each = 96 cores):
-sbatch -p arm_long -N 2 -c 12 mpi_job.sh
+sbatch -p arm_long -N 6 -c 12 mpi_job.sh
 
 # Baseline for comparison (single process, 48 OpenMP threads):
 sbatch -p arm_long -c 48 seq_job.sh

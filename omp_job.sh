@@ -17,7 +17,7 @@
 source /etc/profile.d/zz-cray-pe.sh
 
 # ---- Change these to configure the run ----
-BINARY=./data                          # seq/task/data 
+BINARY=./${SLURM_JOB_NAME:-data}                       # seq/task/data 
 MAP=./mapa/mapa5_11.txt
 CUTOFF=4
 
