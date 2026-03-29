@@ -2,6 +2,9 @@
 bashmodule load cray-mvapich2_pmix_nogpu
 make
 
+Submit OpenMP Job
+sbatch -p arm_long -c 48 omp_job.sh
+
 # Quick sanity test (1 min limit, highest priority):
 
 sbatch -p arm_fast -N 1 -c 12 mpi_job.sh

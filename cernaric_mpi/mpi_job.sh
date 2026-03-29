@@ -9,8 +9,8 @@
 # ============================================================================
 
 #SBATCH --job-name=cernaric_mpi
-#SBATCH --output="logs/%x-%J.out"
-#SBATCH --error="logs/%x-%J.err"
+#SBATCH --output="../log/%x-%J.out"
+#SBATCH --error="../log/%x-%J.err"
 
 # Activate Cray programming environment
 source /etc/profile.d/zz-cray-pe.sh
@@ -26,6 +26,10 @@ export MV2_USE_THREAD_WARNING=0
 export MV2_SUPPRESS_JOB_STARTUP_PERFORMANCE_WARNING=1
 export MV2_HOMOGENEOUS_CLUSTER=1
 
+# communicate purerly with network stack
+export MV2_SMP_USE_CMA=0
+export MV2_USE_SHARED_MEM=0
+
 # OpenMP settings 
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-12}
 export OMP_WAIT_POLICY=PASSIVE
@@ -39,6 +43,7 @@ echo "OMP threads: $OMP_NUM_THREADS"
 echo "================"
 
 # --export=ALL forces srun to propagate all environment variables to MPI processes
-srun --export=ALL ./sqm_mpi ./mapa/mapa5_11.txt $OMP_NUM_THREADS 4
+srun --export=ALL ./cernaric_mpi ../mapa/mapa5_11.txt $OMP_NUM_THREADS 4
+# srun --export=ALL,MV2_ENABLE_AFFINITY=0,MV2_USE_THREAD_WARNING=0,OMP_NUM_THREADS=$OMP_NUM_THREADS,OMP_STACKSIZE=64M,OMP_WAIT_POLICY=PASSIVE ./cernaric_mpi ./mapa/mapa5_11.txt $OMP_NUM_THREADS 4
 
 exit 0

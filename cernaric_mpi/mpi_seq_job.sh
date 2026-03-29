@@ -9,8 +9,8 @@
 # ============================================================================
 
 #SBATCH --job-name=cernaric_seq_mpi
-#SBATCH --output="logs/%x-%J.out"
-#SBATCH --error=logs/"%x-%J.err"
+#SBATCH --output="log/%x-%J.out"
+#SBATCH --error=log/"%x-%J.err"
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 
@@ -26,6 +26,6 @@ echo "OMP threads: $OMP_NUM_THREADS"
 echo "===================="
 
 # nprocs=1 triggers the pure-OpenMP fallback path, cutoff_depth:=4
-srun --ntasks=1 ./cernaric_mpi mapa5_11.txt $OMP_NUM_THREADS 4
+srun --ntasks=1 ./cernaric_mpi ../mapa/mapa5_11.txt $OMP_NUM_THREADS 4
 
 exit 0

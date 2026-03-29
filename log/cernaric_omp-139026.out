@@ -1,0 +1,24 @@
+=== Job info ===
+Binary:      ./seq
+Map:         ./mapa/mapa5_11.txt
+Cutoff:      4
+CPUs/task:   8
+OMP threads: 8
+================
+Board:              5 x 11
+Trivial lower bound: 16
+Starting search...
+Recursive calls:    3780024
+Wall time:          4.814 s
+Result: best found (lower bound not reached)
+
+=== Solution ===
+Cost:    18
+T pieces: 7
+Z pieces: 6
+
+ T1  T1  T1  Z2   9  Z3  T4  T4  T4   3  Z5 
+  6  T1  T6  Z2  Z2  Z3  Z3  T4  Z7  Z5  Z5 
+ T8  T6  T6  T6  Z2  Z9  Z3  Z7  Z7  Z5 T10 
+ T8  T8 Z11 Z11 T12  Z9  Z9  Z7 T13 T10 T10 
+ T8 Z11 Z11 T12 T12 T12  Z9 T13 T13 T13 T10 

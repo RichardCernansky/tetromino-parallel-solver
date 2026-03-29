@@ -1,20 +1,20 @@
 === Job info ===
-Nodes:      2
-Tasks:      
-CPUs/task:  12
+Nodes:       6
+Tasks:       
+CPUs/task:   12
 OMP threads: 12
 ================
 Board:               5 x 11
 Trivial lower bound: 16
-MPI processes:       2
+MPI processes:       6
 OpenMP threads/proc: 12
 Cutoff depth:        4
 Batch size:          24
 Generated tasks:     815  (0.002 s)
-Recursive calls:     3401898
+Recursive calls:     6077222
 Generate time:       0.002 s
-Parallel wall time:  5.443 s
-Total wall time:     5.445 s
+Parallel wall time:  0.510 s
+Total wall time:     0.512 s
 Result: best found
 
 === Solution ===
