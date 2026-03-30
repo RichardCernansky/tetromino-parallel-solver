@@ -86,6 +86,7 @@ struct MPIState {
     int  t_count;
     int  z_count;
     int  next_id;
+    // dont have rows, cols
 };
 
 // Result sent from worker back to master
@@ -97,7 +98,7 @@ struct WorkerResult {
     bool found_optimal;
 };
 
-// Packing / unpacking for MPI transport
+// Packing  unpacking for MPI transport
 MPIState pack_state(const State& s) {
     MPIState ms;
     std::memcpy(ms.board, s.board, sizeof(ms.board));
@@ -111,6 +112,7 @@ MPIState pack_state(const State& s) {
     return ms;
 }
 
+// Unpacking for MPI transport
 State unpack_state(const MPIState& ms, const State& base) {
     State s;
     std::memcpy(s.weights, base.weights, sizeof(s.weights));
@@ -138,6 +140,9 @@ std::pair<int,int> first_undecided(const State& s) {
     return {-1, -1};
 }
 
+//  Generate all valid placements of one piece
+//  type that cover cell (r, c).
+//  For every variant, treat each of its 4 cells as the anchor landing on (r,c).
 std::vector<Placement> get_placements(const State& s, int r, int c, const int VAR[4][4][2], char type) {
     std::vector<Placement> result;
     std::set<std::array<std::pair<int,int>,4>> seen;
@@ -167,16 +172,19 @@ std::vector<Placement> get_placements(const State& s, int r, int c, const int VA
 }
 
 void apply_piece(State& s, const Placement& p) {
-    int id = s.next_id++;
-    s.piece_type[id-1] = p.type;
+    // handle ids
+    int id = s.next_id++; s.piece_type[id-1] = p.type;
+    // go through placement cells and update board
     for (int i = 0; i < 4; i++) {
         s.undecided_sum -= s.weights[p.rows[i]][p.cols[i]];
         s.board[p.rows[i]][p.cols[i]] = id;
     }
+    // update undecided
     s.undecided_cells -= 4;
     if (p.type == 'T') s.t_count++; else s.z_count++;
 }
 
+// reverse of apply piece
 void undo_piece(State& s, const Placement& p) {
     s.next_id--;
     for (int i = 0; i < 4; i++) {
@@ -188,22 +196,30 @@ void undo_piece(State& s, const Placement& p) {
 }
 
 void apply_uncover(State& s, int r, int c) {
-    s.cost += s.weights[r][c];
-    s.undecided_sum -= s.weights[r][c];
-    s.board[r][c] = UNCOVERED;
-    s.undecided_cells--;
+    // add to weights and subtract from undecided_sum
+    s.cost += s.weights[r][c]; s.undecided_sum -= s.weights[r][c];
+    // apply uncovered in board
+    s.board[r][c] = UNCOVERED; s.undecided_cells--;
 }
 
+//reverse of apply uncover
 void undo_uncover(State& s, int r, int c) {
-    s.cost -= s.weights[r][c];
-    s.undecided_sum += s.weights[r][c];
-    s.board[r][c] = UNDECIDED;
-    s.undecided_cells++;
+    s.cost -= s.weights[r][c]; s.undecided_sum += s.weights[r][c];
+    s.board[r][c] = UNDECIDED; s.undecided_cells++;
 }
 
-bool parity_prune(int t_count, int z_count, int undecided_cells) {
-    int diff = std::abs(t_count - z_count);
+// Parity prune
+//  Returns true  -> this branch CANNOT satisfy the parity constraint → prune.
+//  Returns false -> parity is still satisfiable.
+bool parity_prune(int t_count, int z_count, int undecided_cells)
+
+{
+    int diff = t_count - z_count;   // positive: more T placed
+    if (diff < 0) diff = -diff;     // |diff|
+
+    // Maximum additional pieces we could place
     int max_more = undecided_cells / 4;
+
     return (diff > max_more + 1);
 }
 
@@ -418,7 +434,7 @@ int main(int argc, char* argv[]) {
 
     int lb = trivial_lower_bound(base);
 
-    // MASTER (rank 0)
+    // MASTER - rank 0
     if (rank == 0) {
         std::cout << "Board:               " << base.rows << " x " << base.cols << "\n";
         std::cout << "Trivial lower bound: " << lb << "\n";
@@ -427,14 +443,18 @@ int main(int argc, char* argv[]) {
         std::cout << "Cutoff depth:        " << cut << "\n";
         std::cout << "Batch size:          " << batch_size << "\n";
 
+        // start clock
         auto tg0 = std::chrono::high_resolution_clock::now();
+
+        // generate pool of states
         std::vector<State> pool;
         generate_states(base, 0, cut, lb, pool);
         auto tg1 = std::chrono::high_resolution_clock::now();
         double gen_time = std::chrono::duration<double>(tg1 - tg0).count();
         std::cout << "Generated tasks:     " << pool.size()
                   << "  (" << std::fixed << std::setprecision(3) << gen_time << " s)\n";
-
+        
+        // pack the state pool for shipping
         std::vector<MPIState> packed(pool.size());
         for (size_t i = 0; i < pool.size(); i++)
             packed[i] = pack_state(pool[i]);
@@ -470,12 +490,13 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Main loop: receive results, redistribute work
+        // receive results, redistribute work while active workers > 0
         while (active_workers > 0) {
+
+            // receive the message, blocking then send anther - dumb?
             WorkerResult wr;
-            MPI_Status status;
-            MPI_Recv(&wr, sizeof(WorkerResult), MPI_BYTE,
-                     MPI_ANY_SOURCE, TAG_RESULT, MPI_COMM_WORLD, &status);
+            MPI_Status status; // message metadata
+            MPI_Recv(&wr, sizeof(WorkerResult), MPI_BYTE, MPI_ANY_SOURCE, TAG_RESULT, MPI_COMM_WORLD, &status); 
             int src = status.MPI_SOURCE;
             active_workers--;
 
@@ -486,14 +507,16 @@ int main(int argc, char* argv[]) {
                 if (wr.found_optimal) global_optimal = true;
             }
 
+            // get the count of the remaining packets
             int count = 0;
             if (!global_optimal && next_idx < (int)packed.size())
                 count = std::min(batch_size, (int)packed.size() - next_idx);
 
+            // send the header first with information about count - stop condition
             int header[2] = {count, global_best};
             MPI_Send(header, 2, MPI_INT, src, TAG_WORK, MPI_COMM_WORLD);
 
-            // if count is still > 0, send another batch, increase next_idx, active workers
+            // if count is still > 0, send another batch, increase next_idx and active workers
             if (count > 0) {
                 MPI_Send(&packed[next_idx], count * (int)sizeof(MPIState),
                          MPI_BYTE, src, TAG_WORK, MPI_COMM_WORLD);
@@ -586,12 +609,13 @@ int main(int argc, char* argv[]) {
             wr.next_id       = shared.solution.next_id;
             wr.found_optimal = shared.found_optimal;
 
-            // send the message of the worker to the Master
+            // send the worker result to the Master
             MPI_Send(&wr, sizeof(WorkerResult), MPI_BYTE,
                      0, TAG_RESULT, MPI_COMM_WORLD);
         }
 
         long long dummy = 0; // not used in non-root process
+        // report private g_calls to master 
         MPI_Reduce(&g_calls, &dummy, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
     }
 

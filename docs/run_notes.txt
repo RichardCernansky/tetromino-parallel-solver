@@ -15,3 +15,22 @@ sbatch -p arm_long -N 6 -c 12 mpi_job.sh
 
 # Baseline for comparison (single process, 48 OpenMP threads):
 sbatch -p arm_long -c 48 seq_job.sh
+
+
+PSEUDO
+1. initialize MPI, base state
+2. generate pool of states and PACK it 
+3. If master
+    a. generate pool of states and pack it 
+    b. send batches to all the workers
+    c. listen to the reply while active workers > 0
+        I. if some batches left after each reply send batch
+        II. increase the active worker
+    d. no active workers left - reduce g_calls, print stats
+4. else (worker)
+    a. receive the batch 
+    b. if count == break - stop condition
+    c. else fill the local pool with UNPACKED states
+    d. run data parallelism on that local pool with OMP
+    e. report result and g_calls to MASTER
+5. finalize MPI and exit 0
