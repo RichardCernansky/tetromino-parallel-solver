@@ -1,0 +1,30 @@
+=== Job info ===
+Binary:      ./seq
+Map:         ./mapa_test2/m_11x8_w30_a.txt
+Cutoff:      4
+CPUs/task:   
+OMP threads: 48
+================
+Board:              11 x 8
+Trivial lower bound: 0
+Starting search...
+Recursive calls:    558200053
+Wall time:          717.392 s
+Result: best found (lower bound not reached)
+
+=== Solution ===
+Cost:    5
+T pieces: 11
+Z pieces: 10
+
+ T1  T1  T1  T2  T2  T2  Z3  Z3 
+ T4  T1  Z5  Z5  T2  Z3  Z3  T6 
+ T4  T4  T7  Z5  Z5  Z8  T6  T6 
+ T4  T7  T7  T7  Z8  Z8  T9  T6 
+T10   1 Z11 Z11  Z8   2  T9  T9 
+T10 T10 T12 Z11 Z11 Z13  T9 T14 
+T10 T12 T12 T12 Z13 Z13 T14 T14 
+T15   1 Z16 Z16 Z13 Z17 Z17 T14 
+T15 T15 Z18 Z16 Z16 Z19 Z17 Z17 
+T15 T20 Z18 Z18 Z19 Z19 Z21 Z21 
+T20 T20 T20 Z18 Z19 Z21 Z21   1 

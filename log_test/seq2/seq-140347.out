@@ -1,0 +1,7 @@
+=== Job info ===
+Binary:      ./seq
+Map:         ./mapa_test2/m_10x9_w50_a.txt
+Cutoff:      4
+CPUs/task:   
+OMP threads: 48
+================

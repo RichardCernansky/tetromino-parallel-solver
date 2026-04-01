@@ -43,7 +43,7 @@ echo "OMP threads: $OMP_NUM_THREADS"
 echo "================"
 
 # --export=ALL forces srun to propagate all environment variables to MPI processes
-srun --export=ALL ./cernaric_mpi ../mapa/mapa5_11.txt $OMP_NUM_THREADS 4
+srun --export=ALL ./cernaric_mpi/cernaric_mpi ../mapa/mapa9_9.txt $OMP_NUM_THREADS 4
 # srun --export=ALL,MV2_ENABLE_AFFINITY=0,MV2_USE_THREAD_WARNING=0,OMP_NUM_THREADS=$OMP_NUM_THREADS,OMP_STACKSIZE=64M,OMP_WAIT_POLICY=PASSIVE ./cernaric_mpi ./mapa/mapa5_11.txt $OMP_NUM_THREADS 4
 
 exit 0

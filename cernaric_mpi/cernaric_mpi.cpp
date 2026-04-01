@@ -1,3 +1,4 @@
+// MPI parallelism
 //Richard Cernansky, cernaric@fit.cvut.cz
 
 #include <iostream>
@@ -493,7 +494,7 @@ int main(int argc, char* argv[]) {
         // receive results, redistribute work while active workers > 0
         while (active_workers > 0) {
 
-            // receive the message, blocking then send anther - dumb?
+            // receive the message, blocking then send anther - naive automaton 
             WorkerResult wr;
             MPI_Status status; // message metadata
             MPI_Recv(&wr, sizeof(WorkerResult), MPI_BYTE, MPI_ANY_SOURCE, TAG_RESULT, MPI_COMM_WORLD, &status); 

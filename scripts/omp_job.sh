@@ -9,8 +9,8 @@
 # ============================================================================
 
 #SBATCH --job-name=cernaric_omp
-#SBATCH --output="log/%x-%J.out"
-#SBATCH --error="log/%x-%J.err"
+#SBATCH --output="log_test/%x/%x-%J.out"
+#SBATCH --error="log_test/%x/%x-%J.err"
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 
@@ -18,7 +18,7 @@ source /etc/profile.d/zz-cray-pe.sh
 
 # ---- Change these to configure the run ----
 BINARY=./${SLURM_JOB_NAME:-data}                       # seq/task/data 
-MAP=./mapa/mapa5_11.txt
+MAP="${1:?Missing map file path as first argument}"
 CUTOFF=4
 
 # Stack size for deep DFS recursion

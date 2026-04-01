@@ -1,0 +1,34 @@
+=== Job info ===
+Binary:      ./seq
+Map:         ./mapa/mapa15_5.txt
+Cutoff:      4
+CPUs/task:   48
+OMP threads: 48
+================
+Board:              15 x 5
+Trivial lower bound: 3
+Starting search...
+Recursive calls:    4682336
+Wall time:          5.530 s
+Result: best found (lower bound not reached)
+
+=== Solution ===
+Cost:    5
+T pieces: 9
+Z pieces: 9
+
+ Z1  T2  T2  T2  Z3 
+ Z1  Z1  T2  Z3  Z3 
+ T4  Z1   2  Z3  T5 
+ T4  T4  Z6  T5  T5 
+ T4  Z6  Z6  Z7  T5 
+ T8  Z6  Z7  Z7  T9 
+ T8  T8  Z7  T9  T9 
+ T8 Z10 Z10 Z11  T9 
+Z10 Z10   2 Z11 Z11 
+T12   1 Z13 Z13 Z11 
+T12 T12 T14 Z13 Z13 
+T12 Z15 T14 T14 T16 
+Z15 Z15 T14 T16 T16 
+Z15 T17 Z18 Z18 T16 
+T17 T17 T17 Z18 Z18 

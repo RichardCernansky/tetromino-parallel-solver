@@ -1,0 +1,3 @@
+slurmstepd: error: *** JOB 140367 ON cf-prod-node-045 CANCELLED AT 2026-04-01T13:22:36 DUE TO TIME LIMIT ***
+slurmstepd: error: *** STEP 140367.0 ON cf-prod-node-045 CANCELLED AT 2026-04-01T13:22:36 DUE TO TIME LIMIT ***
+srun: Job step aborted: Waiting up to 32 seconds for job step to finish.
