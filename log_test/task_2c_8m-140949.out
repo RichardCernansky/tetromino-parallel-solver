@@ -1,0 +1,30 @@
+=== Job info ===
+Binary:      ./task
+Map:         ./mapa_test/8m.txt
+Cutoff:      4
+CPUs/task:   2
+OMP threads: 2
+================
+Board:              10 x 9
+Trivial lower bound: 3
+Threads:            2
+Cutoff depth:       4
+Recursive calls:    481435306
+Wall time:          404.258 s
+Result: best found
+
+=== Solution ===
+Cost:     5
+T pieces: 11
+Z pieces: 11
+
+ Z1  T2  T2  T2  T3  T3  T3  Z4  Z4 
+ Z1  Z1  T2   2  T5  T3  Z4  Z4  T6 
+ T7  Z1  T8  T5  T5  T5  T9  T6  T6 
+ T7  T7  T8  T8 Z10  T9  T9 Z11  T6 
+ T7 Z12  T8 Z10 Z10 Z13  T9 Z11 Z11 
+Z12 Z12 Z14 Z10 T15 Z13 Z13 Z16 Z11 
+Z12 Z14 Z14 Z17 T15 T15 Z13 Z16 Z16 
+T18 Z14 Z17 Z17 T15 Z19 Z19 Z20 Z16 
+T18 T18 Z17 T21 Z19 Z19 T22 Z20 Z20 
+T18   3 T21 T21 T21 T22 T22 T22 Z20 

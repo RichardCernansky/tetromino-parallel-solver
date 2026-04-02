@@ -1,0 +1,29 @@
+=== Job info ===
+Nodes:       1
+Tasks:       6
+CPUs/task:   8
+OMP threads: 8
+================
+Board:               5 x 15
+Trivial lower bound: 7
+MPI processes:       6
+OpenMP threads/proc: 8
+Cutoff depth:        4
+Batch size:          16
+Generated tasks:     817  (0.002 s)
+Recursive calls:     271699446
+Generate time:       0.002 s
+Parallel wall time:  47.825 s
+Total wall time:     47.828 s
+Result: best found
+
+=== Solution ===
+Cost:     8
+T pieces: 9
+Z pieces: 9
+
+ T1  T1  T1  Z2  Z2  Z3  T4  T4  T4  Z5  Z6  Z6  T7  T7  T7 
+ T8  T1  Z2  Z2  Z3  Z3  Z9  T4  Z5  Z5   2  Z6  Z6  T7 T10 
+ T8  T8 Z11   4  Z3 Z12  Z9  Z9  Z5 Z13 T14 T14 T14 T10 T10 
+ T8 T15 Z11 Z11 Z12 Z12 T16  Z9 Z13 Z13 T17 T14 Z18 Z18 T10 
+T15 T15 T15 Z11 Z12 T16 T16 T16 Z13 T17 T17 T17   2 Z18 Z18 

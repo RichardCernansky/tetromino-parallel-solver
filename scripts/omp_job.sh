@@ -17,7 +17,7 @@
 source /etc/profile.d/zz-cray-pe.sh
 
 # ---- Change these to configure the run ----
-BINARY=./${SLURM_JOB_NAME:-data}                       # seq/task/data 
+BINARY=./${SLURM_JOB_NAME%%_*}                     # seq/task/data 
 MAP="${1:?Missing map file path as first argument}"
 CUTOFF=4
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 graphs.py — generate speedup and efficiency graphs from results.csv
-Usage: python3 graphs.py results.csv
+Usage: python3 make_graphs.py results.csv
 """
 import sys
 import pandas as pd
@@ -18,14 +18,23 @@ markers = {"data": "o", "task": "s", "mpi": "D"}
 for map_name in sorted(df["map"].unique()):
     m = df[df["map"] == map_name]
 
-    # Get sequential baseline
     seq = m[m["variant"] == "seq"]
     if len(seq) == 0:
         print(f"WARNING: no sequential baseline for {map_name}, skipping")
         continue
     seq_time = seq["wall_time"].values[0]
-
     max_cores = m["cores"].max()
+
+    # Pre-calculate all speedups to find max for Y-axis scaling
+    all_speedups = []
+    for variant in ["data", "task", "mpi"]:
+        v = m[m["variant"] == variant].sort_values("cores")
+        if len(v) == 0:
+            continue
+        speedup = seq_time / v["wall_time"]
+        all_speedups.extend(speedup.tolist())
+    max_speedup = max(all_speedups) if all_speedups else max_cores
+    y_limit = max_speedup * 1.3
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
     fig.suptitle(f"Map: {map_name}  (sequential: {seq_time:.1f}s)", fontsize=14, fontweight="bold")
@@ -39,7 +48,6 @@ for map_name in sorted(df["map"].unique()):
         ax.plot(v["cores"], v["wall_time"],
                 marker=markers[variant], color=colors[variant],
                 label=variant, linewidth=2, markersize=6)
-
     ax.axhline(y=seq_time, color="gray", linestyle="--", alpha=0.5, label=f"sequential ({seq_time:.1f}s)")
     ax.set_xlabel("Cores", fontsize=11)
     ax.set_ylabel("Wall time [s]", fontsize=11)
@@ -50,8 +58,7 @@ for map_name in sorted(df["map"].unique()):
 
     # ---- Plot 2: Speedup ----
     ax = axes[1]
-    ax.plot([1, max_cores], [1, max_cores], "k--", alpha=0.3, label="Ideal linear")
-
+    ax.plot([1, y_limit], [1, y_limit], "k--", alpha=0.3, label="Ideal linear")
     for variant in ["data", "task", "mpi"]:
         v = m[m["variant"] == variant].sort_values("cores")
         if len(v) == 0:
@@ -60,17 +67,17 @@ for map_name in sorted(df["map"].unique()):
         ax.plot(v["cores"], speedup,
                 marker=markers[variant], color=colors[variant],
                 label=variant, linewidth=2, markersize=6)
-
     ax.set_xlabel("Cores", fontsize=11)
     ax.set_ylabel("Speedup S(p)", fontsize=11)
     ax.set_title("Speedup")
     ax.legend()
     ax.grid(True, alpha=0.3)
+    ax.set_xscale("log", base=2)
+    ax.set_ylim(0, y_limit)
 
     # ---- Plot 3: Efficiency ----
     ax = axes[2]
     ax.axhline(y=1.0, color="k", linestyle="--", alpha=0.3, label="Ideal")
-
     for variant in ["data", "task", "mpi"]:
         v = m[m["variant"] == variant].sort_values("cores")
         if len(v) == 0:
@@ -80,13 +87,13 @@ for map_name in sorted(df["map"].unique()):
         ax.plot(v["cores"], efficiency,
                 marker=markers[variant], color=colors[variant],
                 label=variant, linewidth=2, markersize=6)
-
     ax.set_xlabel("Cores", fontsize=11)
     ax.set_ylabel("Efficiency E(p)", fontsize=11)
     ax.set_title("Efficiency")
     ax.legend()
     ax.grid(True, alpha=0.3)
     ax.set_ylim(0, 1.5)
+    ax.set_xscale("log", base=2)
 
     plt.tight_layout()
     out = f"graph_{map_name}.png"

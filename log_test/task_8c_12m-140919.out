@@ -1,20 +1,16 @@
 === Job info ===
-Nodes:       6
-Tasks:       36
+Binary:      ./task
+Map:         ./mapa_test/12m.txt
+Cutoff:      4
 CPUs/task:   8
 OMP threads: 8
 ================
-Board:               10 x 9
+Board:              10 x 9
 Trivial lower bound: 3
-MPI processes:       36
-OpenMP threads/proc: 8
-Cutoff depth:        4
-Batch size:          16
-Generated tasks:     743  (0.002 s)
-Recursive calls:     901105709
-Generate time:       0.002 s
-Parallel wall time:  43.053 s
-Total wall time:     43.055 s
+Threads:            8
+Cutoff depth:       4
+Recursive calls:    517830799
+Wall time:          219.782 s
 Result: best found
 
 === Solution ===
@@ -22,8 +18,8 @@ Cost:     4
 T pieces: 11
 Z pieces: 11
 
- T1  T1  T1  Z2  Z3  Z3  T4  T4  T4 
- Z5  T1  Z6  Z2  Z2  Z3  Z3  T4  Z7 
+ T1  T1  T1  Z2  T3  T3  T3  Z4  Z4 
+ Z5  T1  Z6  Z2  Z2  T3  Z4  Z4  Z7 
  Z5  Z5  Z6  Z6  Z2  Z8  Z8  Z7  Z7 
  Z9  Z5   2  Z6  Z8  Z8 T10  Z7   2 
  Z9  Z9 T11 Z12 Z12 T10 T10 T10 Z13 
