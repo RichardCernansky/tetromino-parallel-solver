@@ -9,8 +9,8 @@
 # ============================================================================
 
 #SBATCH --job-name=cernaric_omp
-#SBATCH --output="log_test/%x/%x-%J.out"
-#SBATCH --error="log_test/%x/%x-%J.err"
+#SBATCH --output="log_test/%x-%J.out"
+#SBATCH --error="log_test/%x-%J.err"
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 

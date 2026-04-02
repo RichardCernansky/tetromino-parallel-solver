@@ -8,9 +8,9 @@
 #   sbatch -p arm_long -N 4 -n 16 -c 12 mpi_job.sh         # 4 nodes
 # ============================================================================
 
-#SBATCH --job-name=cernaric_mpi
-#SBATCH --output="../log/%x-%J.out"
-#SBATCH --error="../log/%x-%J.err"
+#SBATCH --job-name=mpi
+#SBATCH --output="log_test/%x-%J.out"
+#SBATCH --error="log_test/%x-%J.err"
 
 # Activate Cray programming environment
 source /etc/profile.d/zz-cray-pe.sh
@@ -19,6 +19,8 @@ module load cray-mvapich2_pmix_nogpu
 # Stack size (deep DFS recursion needs more stack per thread) 
 ulimit -s unlimited
 export OMP_STACKSIZE=64M
+
+MAP="${1:?Missing map file path as first argument}"
 
 # MVAPICH2 settings 
 export MV2_ENABLE_AFFINITY=0
@@ -43,7 +45,7 @@ echo "OMP threads: $OMP_NUM_THREADS"
 echo "================"
 
 # --export=ALL forces srun to propagate all environment variables to MPI processes
-srun --export=ALL ./cernaric_mpi/cernaric_mpi ../mapa/mapa9_9.txt $OMP_NUM_THREADS 4
+srun --export=ALL ./cernaric_mpi/cernaric_mpi $MAP $OMP_NUM_THREADS 4
 # srun --export=ALL,MV2_ENABLE_AFFINITY=0,MV2_USE_THREAD_WARNING=0,OMP_NUM_THREADS=$OMP_NUM_THREADS,OMP_STACKSIZE=64M,OMP_WAIT_POLICY=PASSIVE ./cernaric_mpi ./mapa/mapa5_11.txt $OMP_NUM_THREADS 4
 
 exit 0

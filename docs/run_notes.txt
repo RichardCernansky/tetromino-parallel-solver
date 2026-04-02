@@ -3,11 +3,13 @@ bashmodule load cray-mvapich2_pmix_nogpu
 make
 
 Submit OpenMP Job
+sbatch -p arm_serial -J seq ./scripts/omp_job.sh "$map"
+
 sbatch -p arm_long -c 48 omp_job.sh
 
 # Quick sanity test (1 min limit, highest priority):
 
-sbatch -p arm_fast -N 1 -c 12 mpi_job.sh
+sbatch -p arm_fast -N 1 -c 12 -J mpi mpi_job.sh
 
 # -N; -c specified means that Slurm allocates that many resources, on which the .sh script is run
 # MPI run on 2 nodes (4 processes/node × 12 threads each = 96 cores):
@@ -16,7 +18,14 @@ sbatch -p arm_long -N 6 -c 12 mpi_job.sh
 # Baseline for comparison (single process, 48 OpenMP threads):
 sbatch -p arm_long -c 48 seq_job.sh
 
+# On cluster: extract times
+bash extract.sh > results.csv
+cat results.csv
 
+# On your Mac: make graphs
+scp cluster:~/project/results.csv .
+pip install pandas matplotlib
+python3 graphs.py results.csv
 
 Star topology
 PSEUDO
