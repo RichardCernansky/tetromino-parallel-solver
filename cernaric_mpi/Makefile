@@ -30,7 +30,6 @@ $(TARGET): $(SRC)
 clean:
 	rm -f $(TARGET)
 
-# Create the submission archive for ProgTest
 # tar c=create z=gzip-compress f=output-filename
 pack:
-	tar czf cernaric-PDP-26-4.tar.gz $(SRC) Makefile mpi_job.sh
+	tar czf cernaric-PDP-MPI-4.tar.gz $(SRC) Makefile ../scripts/mpi_job.sh
